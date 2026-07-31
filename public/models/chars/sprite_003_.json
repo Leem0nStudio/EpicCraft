@@ -1,0 +1,41 @@
+{
+  "image": "sprite_003_.png",
+  "frameWidth": 115,
+  "frameHeight": 256,
+  "columns": 4,
+  "rows": 1,
+  "fps": {
+    "idle": 4,
+    "walk": 8,
+    "attack": 10,
+    "cast": 6
+  },
+  "directions": {
+    "SE": 0,
+    "E": 1,
+    "N": 2,
+    "NW": 3
+  },
+  "mirrorDirections": {
+    "SW": "SE",
+    "W": "E",
+    "NE": "NW"
+  },
+  "animations": {
+    "idle": {
+      "row": 0
+    },
+    "walk": {
+      "row": 0,
+      "note": "Use idle until walk sprites available"
+    },
+    "attack": {
+      "row": 0,
+      "note": "Use idle until attack sprites available"
+    },
+    "cast": {
+      "row": 0,
+      "note": "Use idle until cast sprites available"
+    }
+  }
+}

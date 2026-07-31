@@ -1,0 +1,45 @@
+{
+  "image": "sprite_015_.png",
+  "frameWidth": 115,
+  "frameHeight": 256,
+  "columns": 4,
+  "rows": 4,
+  "fps": {
+    "idle": 1,
+    "walk": 6,
+    "attack": 10,
+    "cast": 6
+  },
+  "directions": {
+    "SE": 0,
+    "E": 1,
+    "N": 2,
+    "NW": 3
+  },
+  "mirrorDirections": {
+    "SW": "SE",
+    "W": "E",
+    "NE": "NW"
+  },
+  "animations": {
+    "idle": {
+      "row": 0
+    },
+    "walk": {
+      "row": 1
+    },
+    "attack": {
+      "row": 2
+    },
+    "cast": {
+      "row": 3
+    }
+  },
+  "class": "warrior",
+  "palette": {
+    "primary": "#4A7C9B",
+    "secondary": "#8B2500",
+    "accent": "#C0C0C0"
+  },
+  "notes": "Warrior sprite sheet. 4 columns (SE, E, N, NW) x 4 rows (idle, walk, attack, cast). 2 frames per animation. Lighting convention: above-left (35° elevation, warm 0xffedd0)."
+}
