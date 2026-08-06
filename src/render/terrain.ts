@@ -13,13 +13,22 @@ import {
   CONTINENT_X_MIN,
   type ContinentBiome,
 } from '../world/ContinentGrammar';
-import { loadTexture } from './assets/loader';
-import { registerPreload } from './assets/preload';
 import { GFX } from './gfx';
 import { runIdleQueue } from './idle_queue';
 import { impactCraterTerrainBlend } from './impact_terrain';
 import { chunkIntersectsRegion, normalTexelBounds } from './terrain_region_core';
-import { groundDetailTexture, groundSplatMaps, macroNoiseTexture } from './textures';
+import {
+  groundDetailTexture,
+  groundSplatMaps,
+  macroNoiseTexture,
+  minecraftDirt,
+  minecraftGrassSide,
+  minecraftGrassTop,
+  minecraftMud,
+  minecraftSand,
+  minecraftSnow,
+  minecraftStone,
+} from './textures';
 
 // Chunked terrain across the whole 360x1080 zone strip.
 //
@@ -51,33 +60,21 @@ const SLOPE_EPS = 1.5; // matches the legacy color pass so tints don't shift
 // time buildTerrain runs the resolved textures are available synchronously.
 // ---------------------------------------------------------------------------
 
+// Minecraft-style canvas terrain textures (synchronous, no preload needed).
 const TERRAIN_TEX: Record<string, THREE.Texture> = {};
-const ALBEDO_ANISOTROPY = 8;
 const NORMAL_ANISOTROPY = 4;
 
-function kickTerrainTex(key: string, file: string, srgb: boolean): void {
-  registerPreload(
-    loadTexture(`/textures/terrain/${file}`, { srgb, repeat: true }).then((tex) => {
-      tex.anisotropy = srgb ? ALBEDO_ANISOTROPY : NORMAL_ANISOTROPY;
-      TERRAIN_TEX[key] = tex;
-      return tex;
-    }),
-  );
-}
-
-// ~15MB of JPEGs — skip when the URL already forces the Lambert tier (an
-// auto-detected low tier still fetches them; the URL guess can't know yet)
 if (GFX.terrainSplat) {
-  kickTerrainTex('grassC', 'Grass001_Color.jpg', true);
-  kickTerrainTex('grassN', 'Grass001_NormalGL.jpg', false);
-  kickTerrainTex('dirtC', 'Ground048_Color.jpg', true);
-  kickTerrainTex('dirtN', 'Ground048_NormalGL.jpg', false);
-  kickTerrainTex('rockC', 'Rock051_Color.jpg', true);
-  kickTerrainTex('rockN', 'Rock051_NormalGL.jpg', false);
-  kickTerrainTex('sandC', 'Ground080_Color.jpg', true);
-  kickTerrainTex('sandN', 'Ground080_NormalGL.jpg', false);
-  kickTerrainTex('mudC', 'Ground071_Color.jpg', true); // marsh wet mud (dirt variant)
-  kickTerrainTex('snowC', 'Snow010A_Color.jpg', true);
+  TERRAIN_TEX.grassC = minecraftGrassTop();
+  TERRAIN_TEX.grassN = minecraftGrassSide();
+  TERRAIN_TEX.dirtC = minecraftDirt();
+  TERRAIN_TEX.dirtN = minecraftStone();
+  TERRAIN_TEX.rockC = minecraftStone();
+  TERRAIN_TEX.rockN = minecraftStone();
+  TERRAIN_TEX.sandC = minecraftSand();
+  TERRAIN_TEX.sandN = minecraftSand();
+  TERRAIN_TEX.mudC = minecraftMud();
+  TERRAIN_TEX.snowC = minecraftSnow();
 }
 
 export function hasTerrainSplatAssets(): boolean {
@@ -801,7 +798,7 @@ function buildSplatMaterial(
       .replace(
         '#include <map_fragment>',
         `
-        vec2 tuv = vWPos.xz * 0.22;
+        vec2 tuv = vWPos.xz * 0.125;
         // grass blends two scales so the 1K photo source never reads as tile
         vec3 grassAlb = mix(texture2D(uGrass, tuv).rgb, texture2D(uGrass, tuv * 0.31).rgb, 0.42);
         // marsh swaps packed dirt for wet mud (roads, hub discs included)

@@ -1194,6 +1194,188 @@ export function awningStripeMaps(): SurfaceMaps {
   return { map, normalMap: heightToNormal(height, 1.1) };
 }
 
+// ---------------------------------------------------------------------------
+// Minecraft-style 16×16 terrain textures (NearestFilter for pixel-art crispness)
+// ---------------------------------------------------------------------------
+
+function makeMinecraftTex(
+  size: number,
+  draw: (ctx: CanvasRenderingContext2D, s: number) => void,
+): THREE.CanvasTexture {
+  const c = document.createElement('canvas');
+  c.width = size;
+  c.height = size;
+  const ctx = c.getContext('2d')!;
+  ctx.imageSmoothingEnabled = false;
+  draw(ctx, size);
+  const tex = new THREE.CanvasTexture(c);
+  tex.minFilter = THREE.NearestFilter;
+  tex.magFilter = THREE.NearestFilter;
+  tex.wrapS = THREE.RepeatWrapping;
+  tex.wrapT = THREE.RepeatWrapping;
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.generateMipmaps = false;
+  return tex;
+}
+
+export function minecraftGrassTop(): THREE.CanvasTexture {
+  return makeMinecraftTex(16, (ctx, s) => {
+    ctx.fillStyle = '#5a8a32';
+    ctx.fillRect(0, 0, s, s);
+    for (let y = 0; y < s; y++) {
+      for (let x = 0; x < s; x++) {
+        const v = rnd();
+        if (v < 0.25) {
+          ctx.fillStyle = v < 0.1 ? '#4a7a28' : '#68a040';
+          ctx.fillRect(x, y, 1, 1);
+        }
+      }
+    }
+    // darker speckles
+    for (let i = 0; i < 12; i++) {
+      ctx.fillStyle = '#3e6820';
+      ctx.fillRect(Math.floor(rnd() * s), Math.floor(rnd() * s), 1, 1);
+    }
+  });
+}
+
+export function minecraftGrassSide(): THREE.CanvasTexture {
+  return makeMinecraftTex(16, (ctx, s) => {
+    // dirt base
+    ctx.fillStyle = '#866043';
+    ctx.fillRect(0, 0, s, s);
+    for (let y = 0; y < s; y++) {
+      for (let x = 0; x < s; x++) {
+        const v = rnd();
+        if (v < 0.3) {
+          ctx.fillStyle = v < 0.12 ? '#70503a' : '#9a7050';
+          ctx.fillRect(x, y, 1, 1);
+        }
+      }
+    }
+    // green top strip (3px deep with jagged bottom)
+    for (let x = 0; x < s; x++) {
+      const depth = 2 + Math.floor(rnd() * 2);
+      for (let y = 0; y < depth; y++) {
+        const g = 100 + Math.floor(rnd() * 40);
+        ctx.fillStyle = `rgb(${50 + Math.floor(rnd() * 20)},${g},${30 + Math.floor(rnd() * 15)})`;
+        ctx.fillRect(x, y, 1, 1);
+      }
+    }
+  });
+}
+
+export function minecraftDirt(): THREE.CanvasTexture {
+  return makeMinecraftTex(16, (ctx, s) => {
+    ctx.fillStyle = '#866043';
+    ctx.fillRect(0, 0, s, s);
+    for (let y = 0; y < s; y++) {
+      for (let x = 0; x < s; x++) {
+        const v = rnd();
+        if (v < 0.35) {
+          ctx.fillStyle = v < 0.15 ? '#70503a' : '#9a7050';
+          ctx.fillRect(x, y, 1, 1);
+        }
+      }
+    }
+    // small pebbles
+    for (let i = 0; i < 8; i++) {
+      ctx.fillStyle = '#6a4830';
+      ctx.fillRect(Math.floor(rnd() * s), Math.floor(rnd() * s), 1, 1);
+    }
+  });
+}
+
+export function minecraftStone(): THREE.CanvasTexture {
+  return makeMinecraftTex(16, (ctx, s) => {
+    ctx.fillStyle = '#7a7a7a';
+    ctx.fillRect(0, 0, s, s);
+    for (let y = 0; y < s; y++) {
+      for (let x = 0; x < s; x++) {
+        const v = rnd();
+        if (v < 0.4) {
+          const shade = 90 + Math.floor(rnd() * 60);
+          ctx.fillStyle = `rgb(${shade},${shade},${shade})`;
+          ctx.fillRect(x, y, 1, 1);
+        }
+      }
+    }
+    // darker cracks / flecks
+    for (let i = 0; i < 10; i++) {
+      ctx.fillStyle = '#585858';
+      ctx.fillRect(Math.floor(rnd() * s), Math.floor(rnd() * s), 1, 1);
+    }
+    // light flecks
+    for (let i = 0; i < 6; i++) {
+      ctx.fillStyle = '#a0a0a0';
+      ctx.fillRect(Math.floor(rnd() * s), Math.floor(rnd() * s), 1, 1);
+    }
+  });
+}
+
+export function minecraftSand(): THREE.CanvasTexture {
+  return makeMinecraftTex(16, (ctx, s) => {
+    ctx.fillStyle = '#d4c48c';
+    ctx.fillRect(0, 0, s, s);
+    for (let y = 0; y < s; y++) {
+      for (let x = 0; x < s; x++) {
+        const v = rnd();
+        if (v < 0.35) {
+          ctx.fillStyle = v < 0.15 ? '#c4b47c' : '#e0d0a0';
+          ctx.fillRect(x, y, 1, 1);
+        }
+      }
+    }
+    // darker grains
+    for (let i = 0; i < 8; i++) {
+      ctx.fillStyle = '#b0a070';
+      ctx.fillRect(Math.floor(rnd() * s), Math.floor(rnd() * s), 1, 1);
+    }
+  });
+}
+
+export function minecraftMud(): THREE.CanvasTexture {
+  return makeMinecraftTex(16, (ctx, s) => {
+    ctx.fillStyle = '#5a4a3a';
+    ctx.fillRect(0, 0, s, s);
+    for (let y = 0; y < s; y++) {
+      for (let x = 0; x < s; x++) {
+        const v = rnd();
+        if (v < 0.4) {
+          ctx.fillStyle = v < 0.2 ? '#4a3a2a' : '#6a5a48';
+          ctx.fillRect(x, y, 1, 1);
+        }
+      }
+    }
+    // wet sheen specks
+    for (let i = 0; i < 6; i++) {
+      ctx.fillStyle = '#7a6a58';
+      ctx.fillRect(Math.floor(rnd() * s), Math.floor(rnd() * s), 1, 1);
+    }
+  });
+}
+
+export function minecraftSnow(): THREE.CanvasTexture {
+  return makeMinecraftTex(16, (ctx, s) => {
+    ctx.fillStyle = '#f0f0f0';
+    ctx.fillRect(0, 0, s, s);
+    for (let y = 0; y < s; y++) {
+      for (let x = 0; x < s; x++) {
+        const v = rnd();
+        if (v < 0.3) {
+          ctx.fillStyle = v < 0.15 ? '#e0e0e0' : '#ffffff';
+          ctx.fillRect(x, y, 1, 1);
+        }
+      }
+    }
+    // subtle shadow specks
+    for (let i = 0; i < 5; i++) {
+      ctx.fillStyle = '#d8d8d8';
+      ctx.fillRect(Math.floor(rnd() * s), Math.floor(rnd() * s), 1, 1);
+    }
+  });
+}
+
 // Sparkle star for ground quest objects
 export function sparkleTexture(): THREE.CanvasTexture {
   const c = document.createElement('canvas');
