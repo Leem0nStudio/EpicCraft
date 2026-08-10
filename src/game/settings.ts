@@ -59,7 +59,8 @@ export const SETTING_RANGES = {
   // touch-only: scales the camera (look) joystick turn/pitch rate. The Camera
   // Speed slider only scales mouselook, so before this phones had no way to
   // tune look sensitivity; surfaced in Graphics only on phone touch devices.
-  touchLookSpeed: { min: 0.4, max: 1.8, def: 1 },
+  // 1.2 default feels more responsive for mobile MMORPG camera control.
+  touchLookSpeed: { min: 0.4, max: 1.8, def: 1.2 },
   // 1.0 (fully opaque) by default; touch-only. Lets phone players dim the
   // on-screen joysticks + buttons so they obscure less of the world.
   touchOpacity: { min: 0.3, max: 1, def: 1 },
@@ -148,11 +149,13 @@ export const BOOL_SETTINGS = {
   // the right and the camera joystick on the left, for left-thumb-dominant
   // players. CSS-only swap gated on body.mobile-left-handed; ignored on desktop.
   leftHandedTouch: { def: false },
-  // off by default: shows the fixed camera joystick on touch (hidden otherwise,
-  // reserving no layout space and consuming no touches). Swipe-look on open
-  // gameplay space is the primary camera path; this is an opt-in alternative for
-  // players who prefer a dedicated stick. Gated on body.mobile-camera-joystick-on.
-  mobileCameraJoystick: { def: false },
+  // on by default: shows the fixed camera joystick on touch. The dedicated
+  // stick is the most discoverable way to rotate the camera on mobile, which is
+  // essential for an RO-style isometric game where camera rotation reveals the
+  // surroundings. Swipe-look on open gameplay space still works alongside it.
+  // Hidden only when the player explicitly turns it off.
+  // Gated on body.mobile-camera-joystick-on.
+  mobileCameraJoystick: { def: true },
   // on by default: mask configured swear words in chat with ****. Purely a
   // local display choice; the server sends raw text and each client decides.
   // (Slurs are blocked server-side regardless and never reach here.)

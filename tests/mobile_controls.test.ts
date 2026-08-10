@@ -686,6 +686,8 @@ describe('MobileControls setActive draft survival', () => {
       clearTouchMove: () => {},
       setTouchLook: () => {},
       setTouchLookVector: () => {},
+      setControllerFacing: () => {},
+      camYaw: 0,
     }) as unknown as Input;
 
   it('keeps an in-progress composer draft on a redundant re-activation (only a real desktop->touch transition resets it)', () => {
@@ -742,6 +744,8 @@ describe('MobileControls pointer lifecycle', () => {
       },
       setTouchLook: () => {},
       setTouchLookVector: () => {},
+    setControllerFacing: () => {},
+      camYaw: 0,
     } as unknown as Input;
 
     new MobileControls(input, mobileCallbacks()).start();
@@ -797,6 +801,8 @@ describe('MobileControls pointer lifecycle', () => {
       },
       setTouchLook: () => {},
       setTouchLookVector: () => {},
+    setControllerFacing: () => {},
+      camYaw: 0,
     } as unknown as Input;
 
     new MobileControls(input, mobileCallbacks()).start();
@@ -826,6 +832,8 @@ describe('MobileControls pointer lifecycle', () => {
       clearTouchMove: () => {},
       setTouchLook: () => {},
       setTouchLookVector: () => {},
+    setControllerFacing: () => {},
+      camYaw: 0,
     } as unknown as Input;
 
     const controls = new MobileControls(input, mobileCallbacks());
@@ -858,6 +866,8 @@ describe('MobileControls pointer lifecycle', () => {
       },
       setTouchLook: () => {},
       setTouchLookVector: () => {},
+    setControllerFacing: () => {},
+      camYaw: 0,
     } as unknown as Input;
 
     new MobileControls(input, mobileCallbacks()).start();
@@ -887,6 +897,8 @@ describe('MobileControls pointer lifecycle', () => {
       clearTouchMove: () => {},
       setTouchLook: () => {},
       setTouchLookVector: () => {},
+    setControllerFacing: () => {},
+      camYaw: 0,
     } as unknown as Input;
 
     new MobileControls(input, mobileCallbacks()).start();
@@ -917,6 +929,8 @@ describe('MobileControls pointer lifecycle', () => {
       clearTouchMove: () => {},
       setTouchLook: () => {},
       setTouchLookVector: () => {},
+    setControllerFacing: () => {},
+      camYaw: 0,
     } as unknown as Input;
     const nav = {
       vibrate: () => {
@@ -950,6 +964,8 @@ describe('MobileControls pointer lifecycle', () => {
       clearTouchMove: () => {},
       setTouchLook: () => {},
       setTouchLookVector: () => {},
+    setControllerFacing: () => {},
+      camYaw: 0,
     } as unknown as Input;
 
     new MobileControls(input, mobileCallbacks()).start();
@@ -978,6 +994,8 @@ describe('MobileControls pointer lifecycle', () => {
       clearTouchMove: () => {},
       setTouchLook: () => {},
       setTouchLookVector: () => {},
+    setControllerFacing: () => {},
+      camYaw: 0,
     } as unknown as Input;
 
     new MobileControls(input, mobileCallbacks()).start();
@@ -1005,6 +1023,8 @@ describe('MobileControls pointer lifecycle', () => {
       clearTouchMove: () => {},
       setTouchLook: () => {},
       setTouchLookVector: () => {},
+    setControllerFacing: () => {},
+      camYaw: 0,
     } as unknown as Input;
 
     new MobileControls(input, mobileCallbacks()).start();
@@ -1049,6 +1069,8 @@ describe('MobileControls pointer lifecycle', () => {
       },
       setTouchLook: () => {},
       setTouchLookVector: () => {},
+    setControllerFacing: () => {},
+      camYaw: 0,
     } as unknown as Input;
 
     new MobileControls(input, mobileCallbacks()).start();
@@ -1086,6 +1108,8 @@ describe('MobileControls pointer lifecycle', () => {
       setTouchLookVector: (look: { x: number; y: number }) => {
         lastLook = look;
       },
+    setControllerFacing: () => {},
+      camYaw: 0,
     } as unknown as Input;
 
     const controls = new MobileControls(input, mobileCallbacks());
@@ -1119,6 +1143,8 @@ describe('MobileControls pointer lifecycle', () => {
         touchLookActive = active;
       },
       setTouchLookVector: () => {},
+    setControllerFacing: () => {},
+      camYaw: 0,
     } as unknown as Input;
 
     new MobileControls(input, mobileCallbacks()).start();
@@ -1141,6 +1167,8 @@ describe('MobileControls pointer lifecycle', () => {
         touchLookActive = active;
       },
       setTouchLookVector: () => {},
+    setControllerFacing: () => {},
+      camYaw: 0,
     } as unknown as Input;
 
     const controls = new MobileControls(input, mobileCallbacks());
@@ -1163,6 +1191,8 @@ describe('MobileControls pointer lifecycle', () => {
       clearTouchMove: () => {},
       setTouchLook: () => {},
       setTouchLookVector: () => {},
+    setControllerFacing: () => {},
+      camYaw: 0,
     } as unknown as Input;
 
     let emotes = 0;
@@ -1186,6 +1216,8 @@ describe('MobileControls pointer lifecycle', () => {
       clearTouchMove: () => {},
       setTouchLook: () => {},
       setTouchLookVector: () => {},
+    setControllerFacing: () => {},
+      camYaw: 0,
     } as unknown as Input;
 
     let discord = 0;
@@ -1209,6 +1241,8 @@ describe('MobileControls pointer lifecycle', () => {
       clearTouchMove: () => {},
       setTouchLook: () => {},
       setTouchLookVector: () => {},
+    setControllerFacing: () => {},
+      camYaw: 0,
     } as unknown as Input;
 
     let donate = 0;
@@ -1232,6 +1266,8 @@ describe('MobileControls pointer lifecycle', () => {
       clearTouchMove: () => {},
       setTouchLook: () => {},
       setTouchLookVector: () => {},
+    setControllerFacing: () => {},
+      camYaw: 0,
     } as unknown as Input;
     new MobileControls(input, mobileCallbacks()).start();
 
@@ -1251,6 +1287,8 @@ describe('MobileControls pointer lifecycle', () => {
       clearTouchMove: () => {},
       setTouchLook: () => {},
       setTouchLookVector: () => {},
+    setControllerFacing: () => {},
+      camYaw: 0,
     } as unknown as Input;
     new MobileControls(input, mobileCallbacks()).start();
 
@@ -1268,6 +1306,8 @@ describe('MobileControls pointer lifecycle', () => {
       clearTouchMove: () => {},
       setTouchLook: () => {},
       setTouchLookVector: () => {},
+    setControllerFacing: () => {},
+      camYaw: 0,
     } as unknown as Input;
     new MobileControls(input, mobileCallbacks()).start();
 
@@ -1287,6 +1327,8 @@ describe('MobileControls pointer lifecycle', () => {
       clearTouchMove: () => {},
       setTouchLook: () => {},
       setTouchLookVector: () => {},
+    setControllerFacing: () => {},
+      camYaw: 0,
     } as unknown as Input;
 
     let jumps = 0;
@@ -1323,6 +1365,8 @@ describe('MobileControls pointer lifecycle', () => {
         deltas.push({ dx, dy });
       },
       zoomBy: () => {},
+    setControllerFacing: () => {},
+      camYaw: 0,
     } as unknown as Input;
 
     new MobileControls(input, mobileCallbacks()).start();
@@ -1403,6 +1447,8 @@ describe('MobileControls pointer lifecycle', () => {
       },
       applyTouchLookDelta: () => {},
       zoomBy: () => {},
+    setControllerFacing: () => {},
+      camYaw: 0,
     } as unknown as Input;
 
     new MobileControls(input, mobileCallbacks()).start();
@@ -1472,6 +1518,8 @@ describe('MobileControls pointer lifecycle', () => {
       zoomBy: (delta: number) => {
         zooms.push(delta);
       },
+    setControllerFacing: () => {},
+      camYaw: 0,
     } as unknown as Input;
 
     new MobileControls(input, mobileCallbacks()).start();
@@ -1555,6 +1603,8 @@ describe('MobileControls pointer lifecycle', () => {
       zoomBy: (delta: number) => {
         zooms.push(delta);
       },
+    setControllerFacing: () => {},
+      camYaw: 0,
     } as unknown as Input;
 
     new MobileControls(input, mobileCallbacks()).start();
@@ -1630,6 +1680,8 @@ describe('MobileControls pointer lifecycle', () => {
       zoomBy: (delta: number) => {
         zooms.push(delta);
       },
+    setControllerFacing: () => {},
+      camYaw: 0,
     } as unknown as Input;
 
     new MobileControls(input, mobileCallbacks()).start();
@@ -1681,6 +1733,8 @@ describe('MobileControls pointer lifecycle', () => {
       setTouchLookVector: () => {},
       applyTouchLookDelta: (dx: number, dy: number) => deltas.push({ dx, dy }),
       zoomBy: () => {},
+    setControllerFacing: () => {},
+      camYaw: 0,
     } as unknown as Input;
 
     new MobileControls(input, mobileCallbacks()).start();
@@ -1720,6 +1774,8 @@ describe('MobileControls pointer lifecycle', () => {
       setTouchLookVector: () => {},
       applyTouchLookDelta: () => {},
       zoomBy: () => {},
+    setControllerFacing: () => {},
+      camYaw: 0,
     } as unknown as Input;
 
     new MobileControls(input, mobileCallbacks()).start();
@@ -1755,6 +1811,8 @@ describe('MobileControls pointer lifecycle', () => {
       setTouchLookVector: () => {},
       applyTouchLookDelta: () => {},
       zoomBy: () => {},
+    setControllerFacing: () => {},
+      camYaw: 0,
     } as unknown as Input;
 
     new MobileControls(input, mobileCallbacks()).start();
@@ -1799,6 +1857,8 @@ describe('MobileControls pointer lifecycle', () => {
       clearTouchMove: () => {},
       setTouchLook: (active: boolean) => lookActive.push(active),
       setTouchLookVector: () => {},
+    setControllerFacing: () => {},
+      camYaw: 0,
     } as unknown as Input;
 
     const controls = new MobileControls(input, mobileCallbacks());
@@ -1830,6 +1890,8 @@ describe('MobileControls pointer lifecycle', () => {
       zoomBy: (delta: number) => {
         zooms.push(delta);
       },
+    setControllerFacing: () => {},
+      camYaw: 0,
     } as unknown as Input;
 
     new MobileControls(input, mobileCallbacks()).start();
@@ -1874,6 +1936,24 @@ describe('MobileControls pointer lifecycle', () => {
     expect(zooms).toHaveLength(1);
 
     // The pinch state was released, so even a further move from the surviving
+
+/** Base mock Input with all methods MobileControls needs. Tests spread this
+ *  and override specific methods for the behavior under test. */
+function mockInputBase(overrides: Record<string, unknown> = {}): Input {
+  return {
+    autorun: false,
+    setTouchMove: () => {},
+    clearTouchMove: () => {},
+    setAutorun: () => {},
+    setTouchLook: () => {},
+    setTouchLookVector: () => {},
+    setControllerFacing: () => {},
+    camYaw: 0,
+    ...overrides,
+  setControllerFacing: () => {},
+      camYaw: 0,
+    } as unknown as Input;
+}
     // pointer (post window-close) must not resume the gesture on its own.
     document.body.classList.remove('mobile-window-open');
     canvas.dispatchEvent(
@@ -1899,6 +1979,8 @@ describe('MobileControls pointer lifecycle', () => {
       zoomBy: (delta: number) => {
         zooms.push(delta);
       },
+    setControllerFacing: () => {},
+      camYaw: 0,
     } as unknown as Input;
 
     new MobileControls(input, mobileCallbacks()).start();
@@ -1942,6 +2024,8 @@ describe('MobileControls pointer lifecycle', () => {
       setTouchLookVector: () => {},
       applyTouchLookDelta: () => {},
       zoomBy: () => {},
+    setControllerFacing: () => {},
+      camYaw: 0,
     } as unknown as Input;
 
     new MobileControls(input, mobileCallbacks()).start();
@@ -1982,6 +2066,8 @@ describe('MobileControls pointer lifecycle', () => {
       setTouchLookVector: () => {},
       applyTouchLookDelta: () => {},
       zoomBy: () => {},
+    setControllerFacing: () => {},
+      camYaw: 0,
     } as unknown as Input;
 
     new MobileControls(input, mobileCallbacks()).start();
@@ -2035,6 +2121,8 @@ describe('MobileControls chrome idle-fade lifecycle', () => {
       clearTouchMove: () => {},
       setTouchLook: () => {},
       setTouchLookVector: () => {},
+      setControllerFacing: () => {},
+      camYaw: 0,
     }) as unknown as Input;
 
   it('dims chrome after idle in touch mode, un-dims on the flip to desktop, and re-arms un-dimmed back in touch', () => {

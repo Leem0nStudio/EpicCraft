@@ -262,8 +262,9 @@ export class MobileControls {
   private hapticsOn = loadHapticsEnabled();
   private joyPointer: number | null = null;
   private lookPointer: number | null = null;
-  // Camera joystick is opt-in (settings.mobileCameraJoystick, def false): hidden
-  // by CSS and inert here until the player turns it on. main.ts pushes the
+  // Camera joystick is on by default (settings.mobileCameraJoystick, def true):
+  // the most discoverable way to rotate the camera on mobile. Hidden by CSS
+  // only when the player explicitly turns it off. main.ts pushes the
   // persisted value in at boot via setCameraJoystickEnabled.
   private cameraJoystickEnabled = false;
   // Per-pointer ownership so a touch that starts on a button/movement zone/menu
@@ -808,6 +809,8 @@ export class MobileControls {
     if (this.moveAutorunLocked && inAutorunTarget) {
       this.input.clearTouchMove();
       this.input.setAutorun(true);
+      // Camera-relative: keep facing the camera direction while autorunning.
+      this.input.setControllerFacing(this.input.camYaw);
       this.syncMoveAutorunTarget('locked');
       return;
     }
@@ -819,11 +822,21 @@ export class MobileControls {
       this.moveAutorunLocked = true;
       this.input.clearTouchMove();
       this.input.setAutorun(true);
+      // Camera-relative: face the camera direction when entering autorun.
+      this.input.setControllerFacing(this.input.camYaw);
       this.syncMoveAutorunTarget('locked');
       return;
     }
     this.input.setTouchMove(move);
     const moving = move.forward || move.back || move.strafeLeft || move.strafeRight;
+    // Camera-relative movement on mobile: when the move joystick is active,
+    // face the camera direction so "forward" on the stick always moves
+    // away from the camera (the direction the player sees on screen).
+    // Without this, p.facing stays stale while the camera joystick rotates
+    // camYaw, making movement feel inverted or disconnected from the view.
+    if (moving) {
+      this.input.setControllerFacing(this.input.camYaw);
+    }
     if (moving && this.input.autorun) this.input.setAutorun(false);
     this.syncMoveAutorunTarget(isMoveAutorunNear(rawY) ? 'near' : 'hidden');
   }
@@ -850,6 +863,12 @@ export class MobileControls {
     this.moveAutorunLocked = false;
     this.syncMoveAutorunTarget(this.input.autorun ? 'locked' : 'hidden');
     this.input.clearTouchMove();
+    // Clear the camera-relative facing when the move joystick is released.
+    // Autorun continues with its own facing via the sim, so only clear when
+    // the player is truly idle (no autorun, no gamepad movement).
+    if (!this.input.autorun) {
+      this.input.setControllerFacing(null);
+    }
     if (this.moveStick) this.moveStick.style.transform = '';
     if (this.moveJoystick) {
       this.moveJoystick.classList.remove('floating', 'active');
@@ -1098,8 +1117,8 @@ export class MobileControls {
     }
     if (this.swipeLookActive) e.preventDefault();
     // Double-tap-to-recenter on the swipe-look path: the camera joystick is
-    // opt-in (hidden by default, settings.mobileCameraJoystick), so this is
-    // the recenter gesture every touch player has. A "tap" is a press that
+    // on by default (settings.mobileCameraJoystick), but this recenter gesture
+    // still works for players who prefer swipe-look. A "tap" is a press that
     // never crossed the swipe deadzone (never became a drag); two of those in
     // quick succession recenter the camera, mirroring the joystick logic.
     const now = this.now();

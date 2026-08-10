@@ -292,10 +292,10 @@
       transition: none;
     }
   }
-  /* Hidden by default (settings.mobileCameraJoystick, def false): swipe-look on
-     open gameplay space is the primary camera path (plan decision 2). Hidden
-     means no reserved layout space and mobile_controls.ts's onCameraDown no-ops
-     while disabled, so a hidden joystick never eats a touch either. */
+  /* On by default (settings.mobileCameraJoystick, def true): the dedicated
+     camera stick is the most discoverable way to rotate the camera on mobile.
+     Swipe-look on open gameplay space still works alongside it. Hidden only
+     when the player explicitly turns it off in settings. */
   body.mobile-touch:not(.mobile-camera-joystick-on) #mobile-camera-joystick {
     display: none;
   }

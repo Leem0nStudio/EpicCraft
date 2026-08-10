@@ -37,7 +37,11 @@ export const MAX_PITCH = 1.05; // ~60 degrees
 /** Zoom limits. */
 export const ZOOM_DESKTOP_MIN = 6;
 export const ZOOM_DESKTOP_MAX = 20;
-export const ZOOM_MOBILE_MIN = 8;
+// Mobile zoom is allowed closer than desktop: the touch pinch/joystick zoom
+// clamps to these, and a closer minimum lets players frame their character
+// (and inspect surroundings/gear) on a small screen without the HUD swallowing
+// the view. 4 world units sits just behind the character at default pitch.
+export const ZOOM_MOBILE_MIN = 4;
 export const ZOOM_MOBILE_MAX = 16;
 
 /** Zoom smoothing factor (higher = faster convergence). Used by Input.updateCameraSmoothing. */
