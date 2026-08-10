@@ -9,6 +9,8 @@
 // interest-radius limited: a camp far across the zone still resolves.
 
 import { CAMPS, GATHER_NODES, GROUND_OBJECTS, MOBS, NPCS, QUESTS } from './data';
+import { continentCamps, continentTreasures } from './content/continent';
+import { getContinentSeed } from './world';
 import { type QuestObjective, type QuestProgress, questObjectiveRequired } from './types';
 
 /** Identity of one quest objective (the map tooltip resolves its localized
@@ -140,11 +142,29 @@ export function questObjectiveAreas(
       if (camp.mobId === mobId)
         push(ref, { x: camp.center.x, z: camp.center.z }, camp.radius + CAMP_AREA_PAD);
     }
+    for (const camp of continentCamps(getContinentSeed())) {
+      if (camp.mobId === mobId)
+        push(ref, { x: camp.center.x, z: camp.center.z }, camp.radius + CAMP_AREA_PAD);
+    }
   };
   // One enclosing circle per ground-object definition: centroid of its spawn
   // positions plus the farthest point (a simple bound is plenty at map scale).
   const pushObjectCluster = (ref: QuestObjectiveRef, itemId: string): void => {
     for (const def of GROUND_OBJECTS) {
+      if (def.itemId !== itemId || def.positions.length === 0) continue;
+      let cx = 0;
+      let cz = 0;
+      for (const p of def.positions) {
+        cx += p.x;
+        cz += p.z;
+      }
+      cx /= def.positions.length;
+      cz /= def.positions.length;
+      let r = 0;
+      for (const p of def.positions) r = Math.max(r, Math.hypot(p.x - cx, p.z - cz));
+      push(ref, { x: cx, z: cz }, Math.max(POINT_AREA_RADIUS, r + CAMP_AREA_PAD));
+    }
+    for (const def of continentTreasures(getContinentSeed())) {
       if (def.itemId !== itemId || def.positions.length === 0) continue;
       let cx = 0;
       let cz = 0;

@@ -65,6 +65,7 @@ import {
 import { VALE_CUP_BALL_MOB, VALE_CUP_BALL_TEMPLATE_ID } from './content/vale_cup';
 import { WARLOCK_PET_MOBS } from './content/warlock_pets';
 import { YUMI_MOBS } from './content/yumi';
+import { CONTINENT_ITEMS, CONTINENT_MOBS, CONTINENT_NPCS, CONTINENT_QUESTS, CONTINENT_QUEST_ORDER } from './content/continent';
 import {
   GRAVEYARD_POS,
   LAKE,
@@ -172,6 +173,7 @@ export const ITEMS: Record<string, ItemDef> = mergeItems(
   HEROIC_ITEMS,
   RETIRED_HEROIC_ITEMS,
   WARFARE_ITEMS,
+  CONTINENT_ITEMS,
 );
 
 export type { AggregatedSetEffect } from './content/item_sets';
@@ -188,6 +190,7 @@ export const MOBS: Record<string, MobTemplate> = {
   ...TEMPLE_DUNGEON_MOBS,
   ...DELVE_MOBS,
   ...YUMI_MOBS,
+  ...CONTINENT_MOBS,
   // The Vale Cup boarball: an inert, non-hostile ball entity (never camp-spawned;
   // the match driver in social/vale_cup.ts spawns and despawns it).
   [VALE_CUP_BALL_TEMPLATE_ID]: VALE_CUP_BALL_MOB,
@@ -210,6 +213,7 @@ export const NPCS: Record<string, NpcDef> = {
   // loop skips it). Kept in NPCS so the online client and world_entity_i18n can
   // resolve its name; spirit.ts spawns a copy at every graveyard.
   [SPIRIT_HEALER_NPC_ID]: SPIRIT_HEALER,
+  ...CONTINENT_NPCS,
 };
 
 // Graveyards + the Spirit Healer: re-exported so the Sim and spirit.ts import the
@@ -221,6 +225,7 @@ export const QUESTS: Record<string, QuestDef> = {
   ...ZONE2_QUESTS,
   ...ZONE3_QUESTS,
   ...TEMPLE_QUESTS,
+  ...CONTINENT_QUESTS,
 };
 
 export const QUEST_ORDER: string[] = [
@@ -228,6 +233,7 @@ export const QUEST_ORDER: string[] = [
   ...ZONE2_QUEST_ORDER,
   ...ZONE3_QUEST_ORDER,
   ...TEMPLE_QUEST_ORDER,
+  ...CONTINENT_QUEST_ORDER,
 ];
 
 // The Book of Deeds catalog (content/deeds.ts) is deliberately NOT re-exported
@@ -564,24 +570,12 @@ export function yumiMazeOriginAt(z: number): { x: number; z: number; slot: numbe
 
 // ---------------------------------------------------------------------------
 // The far continent (Continente por Gramática v1) — the easternmost band, past
-// the Protect Yumi maze (YUMI_BAND_X_MAX = 12000). Unlike every other far band
-// (dungeons/arena/delves/yumi all sit on flat floor), this band carries REAL
-// procedural terrain: groundHeight routes it to src/world/ContinentGrammar.ts
-// (island falloff + fbm relief), so sim, camera, and renderer all share one
-// heightfield again. Reached through a portal gate near the starting town.
+// the Protect Yumi maze (YUMI_BAND_X_MAX = 12000). The band boundary constants
+// and the band predicate live in src/world/ContinentGrammar.ts (canonical) and
+// are re-exported here so every existing data.ts consumer keeps resolving them
+// unchanged.
 // ---------------------------------------------------------------------------
-
-export const CONTINENT_X_MIN = 12000; // x at/after this = the procedural continent
-// 800 wide leaves a large island (radius ~260 in the grammar) plus open sea;
-// the Vale Cup practice pitches sit far past this at x = 30000, so the band
-// must NOT claim everything past 12000 (same two-sided cap lesson as yumi).
-export const CONTINENT_X_MAX = 12800;
-
-// True inside the continent band. Everything that must treat the band
-// specially (groundHeight, colliders, fog, portals) dispatches on this.
-export function isContinentPos(x: number): boolean {
-  return x >= CONTINENT_X_MIN && x < CONTINENT_X_MAX;
-}
+export { CONTINENT_X_MIN, CONTINENT_X_MAX, isContinentPos } from '../world/ContinentGrammar'
 
 export const DELVES: Record<string, DelveDef> = {
   [COLLAPSED_RELIQUARY_DELVE.id]: COLLAPSED_RELIQUARY_DELVE,

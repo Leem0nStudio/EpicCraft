@@ -399,6 +399,7 @@ import {
   leaveContinent as leaveContinentImpl,
   setContinentGatePos,
 } from './instances/continent';
+import { continentCamps, continentTreasures } from './content/continent';
 import { buyHeroicVendorItem as buyHeroicVendorItemImpl } from './instances/heroic_vendor';
 import * as questCommands from './quests/quest_commands';
 import {
@@ -533,6 +534,7 @@ import {
   steadyAngleTo,
   swingMissChance,
   type VcBracket,
+  type CampDef,
   type VcNationId,
   type Vec3,
   virtualLevel,
@@ -545,6 +547,7 @@ import {
   groundHeight,
   nearSteepWalls,
   terrainSteepnessAt,
+  getContinentSeed,
   waterLevel,
   waterLevelAt,
   bindContinentSeed,
@@ -1706,57 +1709,11 @@ export class Sim {
     }
     this.market.seed();
 
-    // Mobs from camps
-    for (const camp of worldContent.camps) {
-      const template = MOBS[camp.mobId];
-      // Aquatic/flagged swimmers may wade in the shallows; everyone else
-      // still spawns on dry land even though combat movement can enter water.
-      const minHeight = this.mobCanSpawnInWater(template) ? waterLevel() - 0.5 : waterLevel() + 0.4;
-      for (let i = 0; i < camp.count; i++) {
-        if (template.dummy) {
-          // A practice dummy is a fixed, deterministic prop (no scatter, fixed level,
-          // never wanders): spawn it WITHOUT drawing any RNG so adding one never
-          // perturbs the world's seed-stable spawns and rolls.
-          const safe = this.findSafePos(camp.center.x, camp.center.z, minHeight);
-          const mob = createMob(
-            this.nextId++,
-            template,
-            template.maxLevel,
-            this.groundPos(safe.x, safe.z),
-          );
-          mob.facing = 0;
-          mob.prevFacing = 0;
-          this.addEntity(mob);
-          continue;
-        }
-        const ang = this.rng.range(0, Math.PI * 2);
-        const r = Math.sqrt(this.rng.next()) * camp.radius;
-        // Keep camp mobs out of every dungeon door's clear ring so approaching or
-        // zoning out of a dungeon never lands the player in a pack's aggro radius.
-        // Pure geometry on the already-rolled point: it draws no rng, so the spawn
-        // loop's own draw order is untouched (mob positions do shift, which moves
-        // their later idle-wander draws, but that is downstream in the drive phase).
-        const cleared = projectOutsideDungeonDoors(
-          camp.center.x + Math.sin(ang) * r,
-          camp.center.z + Math.cos(ang) * r,
-        );
-        // findSafePos's inward spiral can walk a shore-side ring-edge point back
-        // toward land, i.e. back INTO the ring; re-project the safe point so the
-        // "never inside a door ring" guarantee holds for every seed, not just the
-        // shipped one. Still pure and rng-free.
-        const grounded = this.findSafePos(cleared.x, cleared.z, minHeight);
-        const safe = projectOutsideDungeonDoors(grounded.x, grounded.z);
-        const pos = this.groundPos(safe.x, safe.z);
-        const level = this.rng.int(template.minLevel, template.maxLevel);
-        const mob = createMob(this.nextId++, template, level, pos);
-        mob.facing = this.rng.range(-Math.PI, Math.PI);
-        mob.prevFacing = mob.facing;
-        mob.wanderTimer = this.rng.range(2, 10);
-        this.addEntity(mob);
-      }
-    }
+    // Mobs from camps (shared spawn path; continent camps feed the same
+    // method through their own seeded rng stream in the ctor's tail).
+    for (const camp of worldContent.camps) this.spawnCampMobs(camp, this.rng);
 
-    // Ground objects
+        // Ground objects
     for (const objDef of worldContent.groundObjects) {
       for (const p of objDef.positions) {
         const obj = createGroundObject(
@@ -1864,6 +1821,25 @@ export class Sim {
       ret.objectItemId = null;
       ret.lootable = true; // interactable
       this.addEntity(ret);
+    }
+
+    // Continent content (Capa 3): seed-derived camps and treasure caches.
+    // Uses a separate Rng stream so the overworld's rng draw order is untouched.
+    {
+      const seed = getContinentSeed();
+      const campRng = new Rng((seed ^ 0xc4a7) >>> 0);
+      for (const camp of continentCamps(seed)) this.spawnCampMobs(camp, campRng);
+      for (const objDef of continentTreasures(seed)) {
+        for (const p of objDef.positions) {
+          const obj = createGroundObject(
+            this.nextId++,
+            objDef.itemId,
+            objDef.name,
+            this.groundPos(p.x, p.z),
+          );
+          this.addEntity(obj);
+        }
+      }
     }
 
     // Spirit Healers (the angels): one hovering at every overworld graveyard.
@@ -8469,6 +8445,55 @@ export class Sim {
   // Continent-gate registry, appended on continent_gate/continent_return spawn
   // (entity_roster.addEntityToRoster). Stays Sim-owned; reached via ctx.continentGateIds.
   private continentGateIds: number[] | null = null;
+
+  /** Spawn one camp's mobs deterministically from a given rng stream. The
+   *  shared sim.rng drives the overworld camps (draw-order contract); the
+   *  continent camps (src/sim/content/continent.ts) feed a separate salted
+   *  stream so the overworld's draw order is byte-identical. */
+  private spawnCampMobs(camp: CampDef, rng: Rng): void {
+    const template = MOBS[camp.mobId];
+    // Aquatic/flagged swimmers may wade in the shallows; everyone else
+    // still spawns on dry land even though combat movement can enter water.
+    const minHeight = this.mobCanSpawnInWater(template) ? waterLevel() - 0.5 : waterLevel() + 0.4;
+    for (let i = 0; i < camp.count; i++) {
+      if (template.dummy) {
+        // A practice dummy is a fixed, deterministic prop (no scatter, fixed level,
+        // never wanders): spawn it WITHOUT drawing any RNG so adding one never
+        // perturbs the world's seed-stable spawns and rolls.
+        const safe = this.findSafePos(camp.center.x, camp.center.z, minHeight);
+        const mob = createMob(
+          this.nextId++,
+          template,
+          template.maxLevel,
+          this.groundPos(safe.x, safe.z),
+        );
+        mob.facing = 0;
+        mob.prevFacing = 0;
+        this.addEntity(mob);
+        continue;
+      }
+      const ang = rng.range(0, Math.PI * 2);
+      const r = Math.sqrt(rng.next()) * camp.radius;
+      // Keep camp mobs out of every dungeon door's clear ring so approaching or
+      // zoning out of a dungeon never lands the player in a pack's aggro radius.
+      const cleared = projectOutsideDungeonDoors(
+        camp.center.x + Math.sin(ang) * r,
+        camp.center.z + Math.cos(ang) * r,
+      );
+      // findSafePos's inward spiral can walk a shore-side ring-edge point back
+      // toward land, i.e. back INTO the ring; re-project the safe point so the
+      // "never inside a door ring" guarantee holds for every seed.
+      const grounded = this.findSafePos(cleared.x, cleared.z, minHeight);
+      const safe = projectOutsideDungeonDoors(grounded.x, grounded.z);
+      const pos = this.groundPos(safe.x, safe.z);
+      const level = rng.int(template.minLevel, template.maxLevel);
+      const mob = createMob(this.nextId++, template, level, pos);
+      mob.facing = rng.range(-Math.PI, Math.PI);
+      mob.prevFacing = mob.facing;
+      mob.wanderTimer = rng.range(2, 10);
+      this.addEntity(mob);
+    }
+  }
 
   private updateDoorTriggers(p: Entity): void {
     updateDoorTriggersImpl(this.ctx, p);

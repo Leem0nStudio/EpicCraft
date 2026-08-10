@@ -109,6 +109,13 @@ const MOB_IDS = [
   // Thornpeak Heights world boss + its summoned adds
   'thunzharr_waking_peak',
   'thunzharr_stormling',
+  // Continente por Gramatica v1 — procedural continent mobs
+  'coastal_crab',
+  'pine_howler',
+  'crag_serpent',
+  'dune_stalker',
+  'moor_stag',
+  'tide_kraken',
 ] as const;
 
 const NPC_IDS = [
@@ -152,6 +159,8 @@ const NPC_IDS = [
   'tinker_gizzel', // crafting-station master: toolworks (Eastbrook, zone 1)
   'tanner_hesk', // crafting-station master: tannery (Fenbridge, zone 2)
   'alchemist_verane', // crafting-station master: apothecary (Highwatch, zone 3)
+  // Continente por Gramatica v1 — procedural continent NPCs
+  'mariner_voss',
 ] as const;
 
 const QUEST_IDS = [
@@ -233,6 +242,12 @@ const QUEST_IDS = [
   'q_archetype_acceptance',
   'q_prof_make_amends',
   'q_prof_hobby_switch',
+  // Continente por Gramatica v1 — procedural continent quests
+  'q_continent_arrival',
+  'q_continent_vermin',
+  'q_continent_caches',
+  'q_continent_wyrm',
+  'q_continent_kraken',
 ] as const;
 
 const ZONE_IDS = ['eastbrook_vale', 'mirefen_marsh', 'thornpeak_heights'] as const;

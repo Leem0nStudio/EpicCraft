@@ -96,6 +96,7 @@ function makeCtx() {
     get dungeonDoorIds() {
       return dungeonDoorIds;
     },
+    continentGateIds: null,
     instances: [],
     dungeonResetLocks: new Map(),
     get arenaMatches() {

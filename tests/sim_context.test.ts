@@ -268,6 +268,7 @@ function makeFakeHost() {
     groundAoEs: [],
     frozenOrbs: [],
     dungeonDoorIds: null,
+    continentGateIds: null,
     instances: [],
     dungeonResetLocks: new Map(),
     arenaMatches: new Map(),

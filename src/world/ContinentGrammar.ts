@@ -26,7 +26,19 @@
 // ---------------------------------------------------------------------------
 
 import { Rng, fbm2, hash2 } from '../sim/rng';
-import { CONTINENT_X_MIN, CONTINENT_X_MAX } from '../sim/data';
+
+// The far continent band boundaries, canonical here (the sim band dispatchers in
+// data.ts re-export them; the grammar needs them at module scope because the
+// content layer (sim/content/continent.ts) also imports this module, so they
+// cannot live in data.ts without a module cycle through the content layer).
+export const CONTINENT_X_MIN = 12000;
+export const CONTINENT_X_MAX = 12800;
+
+// True inside the continent band. Dispatches on this are centralised in the
+// grammar so data.ts re-exports this function for sim-level consumers.
+export function isContinentPos(x: number): boolean {
+  return x >= CONTINENT_X_MIN && x < CONTINENT_X_MAX;
+}
 
 export type ContinentBiome =
   | 'Ocean'
@@ -84,12 +96,6 @@ function smoothstep(a: number, b: number, x: number): number {
 
 const clamp01 = (v: number): number => Math.max(0, Math.min(1, v));
 
-// True inside the continent band. The band is a fixed x window; z is free (the
-// island itself is what bounds play). Every system that must treat the band
-// specially (groundHeight, colliders, fog) dispatches on this.
-export function isContinentPos(x: number): boolean {
-  return x >= CONTINENT_X_MIN && x < CONTINENT_X_MAX;
-}
 
 // The heightfield WITHOUT river carving: island falloff + fbm relief, a
 // guaranteed-dry harbor plateau at the portal landing, and a gently deepening

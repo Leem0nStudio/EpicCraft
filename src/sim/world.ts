@@ -51,6 +51,8 @@ export function waterLevel(): number {
 // over the movement hot paths) read the bound value so swim decisions and the
 // renderer always agree with the seeded island.
 let continentSeed = 20061;
+export function getContinentSeed(): number { return continentSeed; }
+
 export function bindContinentSeed(seed: number): void {
   continentSeed = seed;
 }
