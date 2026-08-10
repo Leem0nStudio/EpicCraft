@@ -7,6 +7,7 @@ import {
   ARENA_SLOT_COUNT,
   arenaOrigin,
   CLASSES,
+  CONTINENT_X_MIN,
   DELVE_MODULE_Z_START,
   DUNGEON_LIST,
   DUNGEON_X_THRESHOLD,
@@ -21,6 +22,7 @@ import {
   ITEM_SETS,
   instanceOrigin,
   isArenaPos,
+  isContinentPos,
   isDelvePos,
   isYumiMazePos,
   MOBS,
@@ -42,6 +44,9 @@ import { isVisuallyDead } from './anim_state';
 import { AOE_RING_LIFETIME, aoeRingAnim } from './aoe_ring';
 import { buildArtisanRowProps } from './artisan_row_props';
 import type { AmbientPointSource, SpatialAudioSink, Surface } from './audio_sink';
+import { BillboardSprite } from './billboard/billboard';
+import { getMetaSync, getSpriteUrlsForEntity } from './billboard/loader';
+import { cameraRelativeDirection } from './billboard/types';
 import { type BirdsView, buildBirds } from './birds';
 import { type CameraOcclusionState, stepCameraOcclusion } from './camera_collision';
 import {
@@ -55,9 +60,6 @@ import {
   createCharacterVisual,
   setWeaponVfxViewportHeight,
 } from './characters';
-import { BillboardSprite } from './billboard/billboard';
-import { getMetaSync, getSpriteUrlsForEntity, preloadBillboardMeta } from './billboard/loader';
-import { cameraRelativeDirection } from './billboard/types';
 import { logAssetMissOnce } from './characters/asset_miss_log';
 import {
   mechAssetsReady,
@@ -145,7 +147,12 @@ import {
   prewarmEntryRuns,
   resolvePrewarmPolicy,
 } from './prewarm_policy';
-import { buildPropMaterialPrewarmGroup, buildProps } from './props';
+import {
+  buildContinentSettlements,
+  buildPropMaterialPrewarmGroup,
+  buildProps,
+  type ContinentSettlementsView,
+} from './props';
 import { buildGroundQuestObject } from './quest_objects';
 import { isOwnedPetHostile } from './reaction';
 import { RenderBudgetGovernor, type RenderBudgetState } from './render_budget';
@@ -166,7 +173,8 @@ import {
   type TemporalHourglassMode,
   type TemporalHourglassVisual,
 } from './temporal_hourglass_visual';
-import { buildTerrain, type TerrainView } from './terrain';
+import { buildContinentFoliage, type ContinentFoliageView } from './foliage';
+import { buildContinentTerrain, buildTerrain, type ContinentTerrainView, type TerrainView } from './terrain';
 import { sparkleTexture } from './textures';
 import { targetIntensity } from './travel_speed_fx';
 import { TravelSpeedFxPainter } from './travel_speed_fx_painter';
@@ -827,7 +835,11 @@ function setRenderCategory(obj: THREE.Object3D, category: RenderDiagnosticsCateg
 
 function isPersistentPortalObject(e: Entity): boolean {
   return (
-    e.kind === 'object' && (e.templateId === 'dungeon_door' || e.templateId === 'dungeon_exit')
+    e.kind === 'object' &&
+    (e.templateId === 'dungeon_door' ||
+      e.templateId === 'dungeon_exit' ||
+      e.templateId === 'continent_gate' ||
+      e.templateId === 'continent_return')
   );
 }
 
@@ -844,7 +856,14 @@ export class Renderer {
   webgl: THREE.WebGLRenderer;
   views = new Map<number, EntityView>();
   /** Billboard sprites for player entities (2D sprite rendering). */
-  billboards = new Map<number, { billboard: BillboardSprite; shadowGeo: THREE.CircleGeometry; shadowMat: THREE.MeshBasicMaterial }>();
+  billboards = new Map<
+    number,
+    {
+      billboard: BillboardSprite;
+      shadowGeo: THREE.CircleGeometry;
+      shadowMat: THREE.MeshBasicMaterial;
+    }
+  >();
   // Shared shadow blob geometry/material for all billboards (avoids per-entity allocation)
   private static readonly sharedShadowGeo = new THREE.CircleGeometry(0.45, 16);
   private static readonly sharedShadowMat = new THREE.MeshBasicMaterial({
@@ -1024,6 +1043,15 @@ export class Renderer {
   private clouds: THREE.Sprite[] = [];
   private waterView: WaterView;
   private terrainView: TerrainView;
+  // Chunked terrain over the procedural-continent band (x >= CONTINENT_X_MIN),
+  // hidden until the camera nears the band (visibility toggled in sync()).
+  private continentTerrain: ContinentTerrainView;
+  // The band's Capa 1 foliage (trees/rocks/dressing/grass from the deterministic
+  // RegionPopulator), hidden and updated under the same continentNear gate.
+  private continentFoliage: ContinentFoliageView;
+  // Capa 2 towns (built from kingdom nuclei by the settlement grammar), hidden
+  // and updated under the same continentNear gate as terrain + foliage.
+  private continentSettlements: ContinentSettlementsView;
   // Map-editor placed GLB assets; null when the world has none and the editor
   // never asked for the view (the shipped game with the built-in world).
   private placedAssetsView: PlacedAssetsView | null = null;
@@ -1216,7 +1244,11 @@ export class Renderer {
     this.webgl.setPixelRatio(Math.min(window.devicePixelRatio, GFX.pixelRatioCap));
     this.webgl.setSize(this.viewport.width, this.viewport.height, false);
     this.webgl.shadowMap.enabled = !LOW_GFX;
-    this.webgl.shadowMap.type = THREE.PCFSoftShadowMap;
+    // PCFShadowMap for low/medium tiers (the weak-device defaults): the cheapest
+    // 4-tap filter at ~2x the cost of nothing. PCFSoftShadowMap (5-tap + blur)
+    // only for high/ultra where its softness reads at 4096 res.
+    this.webgl.shadowMap.type =
+      GFX.shadowFilter === 'pcf' ? THREE.PCFShadowMap : THREE.PCFSoftShadowMap;
     this.webgl.toneMapping = THREE.ACESFilmicToneMapping; // OutputPass reads this on the composer path
     this.webgl.toneMappingExposure = this.baseExposure;
     // Only worth gating view draws on compileAsync when programs can link OFF the
@@ -1473,6 +1505,24 @@ export class Renderer {
     // Terrain chunks never move after build (the LOD update only toggles
     // visibility): stop their per-frame matrix recompose (static_matrix.ts).
     freezeStaticMatrices(this.terrainView.group);
+    // The procedural-continent band carries its own real terrain (a second
+    // chunked view over the island). Hidden until the camera nears the band;
+    // its chunks stream in idle slots, so nothing here gates world entry.
+    this.continentTerrain = buildContinentTerrain(this.sim.cfg.seed);
+    setRenderCategory(this.continentTerrain.group, 'terrain');
+    this.continentTerrain.group.visible = false;
+    this.scene.add(this.continentTerrain.group);
+    freezeStaticMatrices(this.continentTerrain.group);
+    this.continentFoliage = buildContinentFoliage(this.sim.cfg.seed);
+    setRenderCategory(this.continentFoliage.group, 'foliage');
+    this.continentFoliage.group.visible = false;
+    this.scene.add(this.continentFoliage.group);
+    freezeStaticMatrices(this.continentFoliage.group);
+    this.continentSettlements = buildContinentSettlements(this.sim.cfg.seed);
+    setRenderCategory(this.continentSettlements.group, 'props');
+    this.continentSettlements.group.visible = false;
+    this.scene.add(this.continentSettlements.group);
+    freezeStaticMatrices(this.continentSettlements.group);
     this.waterView = buildWater(this.sim.cfg.seed);
     for (const mesh of this.waterView.meshes) {
       setRenderCategory(mesh, 'water');
@@ -1913,7 +1963,24 @@ export class Renderer {
     this.foliage.setModelQuality(state.levels.foliage);
     this.vfx.setQuality(state.levels.vfx);
     this.effectivePointLights = Math.max(1, Math.round(GFX.maxPointLights * state.levels.lighting));
+    this.applyShadowLevel(state.levels.shadow);
     if (Math.abs(previousScale - this.effectiveRenderScale) >= 0.001) this.applyResolution();
+  }
+
+  /**
+   * The sun shadow pass is the single biggest fixed GPU cost per frame, and the
+   * only safe runtime lever is three's per-light autoUpdate skip (freezing the
+   * depth pass also freezes shadow.matrix, so the stale map stays coherent; there
+   * is no shader recompile or GPU allocation). We never toggle castShadow or
+   * shadowMap.enabled at runtime: both are baked into shader defines at compile
+   * time, so flipping either would trigger a recompile storm mid-frame.
+   */
+  private applyShadowLevel(level: number): void {
+    if (!this.sun || !this.webgl.shadowMap.enabled) return;
+    const wantShadows = level >= 0.5;
+    if (wantShadows === this.sun.shadow.autoUpdate) return;
+    this.sun.shadow.autoUpdate = wantShadows;
+    this.sun.shadow.needsUpdate = wantShadows; // one fresh pass on recovery
   }
 
   private graphicsBucketLevels(state = this.renderBudgetGovernor.state()): GfxBucketLevels {
@@ -2514,7 +2581,13 @@ export class Renderer {
 
   private objectPoolKeyFor(e: Entity): string | null {
     if (e.kind !== 'object' || !e.objectItemId) return null;
-    if (e.templateId === 'dungeon_door' || e.templateId === 'dungeon_exit') return null;
+    if (
+      e.templateId === 'dungeon_door' ||
+      e.templateId === 'dungeon_exit' ||
+      e.templateId === 'continent_gate' ||
+      e.templateId === 'continent_return'
+    )
+      return null;
     return `object:${e.objectItemId}`;
   }
 
@@ -3816,11 +3889,16 @@ export class Renderer {
     const isQuestVision = e.kind === 'mob' && e.templateId.startsWith('vision_');
 
     let portal: THREE.Mesh | undefined;
+    const isContinentGate =
+      e.kind === 'object' &&
+      (e.templateId === 'continent_gate' || e.templateId === 'continent_return');
     if (
       e.kind === 'object' &&
-      (e.templateId === 'dungeon_door' || e.templateId === 'dungeon_exit')
+      (e.templateId === 'dungeon_door' || e.templateId === 'dungeon_exit' || isContinentGate)
     ) {
-      const entering = e.templateId === 'dungeon_door';
+      // The continent pair reads as a shimmering gate: blue on the overworld
+      // side (entering), warm on the return side (leaving the island).
+      const entering = e.templateId !== 'dungeon_exit' && e.templateId !== 'continent_return';
       const built = buildDoorBody(entering, e.dungeonId, this.lowGfx);
       body = built.body;
       portal = built.portal;
@@ -3930,46 +4008,52 @@ export class Renderer {
         this.viewCreateRetry.markFailed(e.id, 'view', performance.now());
         return;
       }
-      
-      // Billboard system: use 2D sprites for players AND NPCs
-      if (e.kind === 'player' || e.kind === 'npc') {
+
+      // Billboard system: 2D sprites for players AND NPCs when their sheet meta
+      // is available. A player/NPC whose sheet is missing or not yet loaded
+      // falls back to the 3D visual path below, never an invisible entity with
+      // a floating nameplate.
+      const billboardUrls =
+        e.kind === 'player' || e.kind === 'npc' ? getSpriteUrlsForEntity(visualKey) : null;
+      const billboardMeta = billboardUrls ? getMetaSync(billboardUrls.metaUrl) : null;
+      if (billboardMeta) {
         height = 2.0; // Default height for billboards
-        const vKey = visualKeyFor(e);
-        const spriteUrls = getSpriteUrlsForEntity(vKey);
-        const meta = getMetaSync(spriteUrls.metaUrl);
-        if (meta) {
-          // Inner group positioned at the vertical offset — billboard mesh stays
-          // at local (0,0,0) so lookAt() rotates around its own center, not an arc.
-          const billboardGroup = new THREE.Group();
-          billboardGroup.position.y = height / 2;
-          billboardGroup.userData.entityId = e.id;
+        // Inner group positioned at the vertical offset, so the billboard mesh stays
+        // at local (0,0,0) so lookAt() rotates around its own center, not an arc.
+        const billboardGroup = new THREE.Group();
+        billboardGroup.position.y = height / 2;
+        billboardGroup.userData.entityId = e.id;
 
-          // No explicit width — auto-derived from frame aspect ratio
-          const billboard = new BillboardSprite(spriteUrls.textureUrl, meta, {
-            height,
-          });
-          billboard.mesh.userData.entityId = e.id;
-          billboardGroup.add(billboard.mesh);
+        // No explicit width: auto-derived from the frame aspect ratio
+        const billboard = new BillboardSprite(billboardUrls!.textureUrl, billboardMeta, {
+          height,
+        });
+        billboard.mesh.userData.entityId = e.id;
+        billboardGroup.add(billboard.mesh);
 
-          // Shadow blob under the sprite — grounds the character visually
-          // Use shared geometry/material to avoid per-entity allocation
-          const shadowBlob = new THREE.Mesh(
-            Renderer.sharedShadowGeo,
-            Renderer.sharedShadowMat,
-          );
-          shadowBlob.rotation.x = -Math.PI / 2;
-          shadowBlob.position.y = -(height / 2) + 0.02;
-          shadowBlob.userData.entityId = e.id;
-          billboardGroup.add(shadowBlob);
+        // Shadow blob under the sprite grounds the character visually
+        // Use shared geometry/material to avoid per-entity allocation
+        const shadowBlob = new THREE.Mesh(Renderer.sharedShadowGeo, Renderer.sharedShadowMat);
+        shadowBlob.rotation.x = -Math.PI / 2;
+        shadowBlob.position.y = -(height / 2) + 0.02;
+        shadowBlob.userData.entityId = e.id;
+        billboardGroup.add(shadowBlob);
 
-          group.add(billboardGroup);
-          // Store billboard ref for cleanup (shadow uses shared geo/mat, no need to dispose)
-          this.billboards.set(e.id, { billboard, shadowGeo: Renderer.sharedShadowGeo, shadowMat: Renderer.sharedShadowMat });
-        } else {
-          logAssetMissOnce(`billboard:${vKey}`, 'Billboard meta not preloaded');
-        }
+        group.add(billboardGroup);
+        // Store billboard ref for cleanup (shadow uses shared geo/mat, no need to dispose)
+        this.billboards.set(e.id, {
+          billboard,
+          shadowGeo: Renderer.sharedShadowGeo,
+          shadowMat: Renderer.sharedShadowMat,
+        });
       } else {
-        // Non-player entities use 3D visuals
+        if (billboardUrls) {
+          logAssetMissOnce(
+            `billboard:${visualKey}`,
+            'Billboard meta not preloaded (falling back to 3D visual)',
+          );
+        }
+        // Non-player entities, or a player/NPC whose sheet is unavailable, use 3D visuals
         visualPoolKey = this.visualPoolKeyFor(e);
         visual = visualPoolKey ? this.takePooledVisual(visualPoolKey) : null;
         if (!visual) {
@@ -4417,6 +4501,11 @@ export class Renderer {
 
   private outdoorFogPreset(): { color: number; near: number; far: number } {
     if (this.lowGfx) return Renderer.LOW_FOG;
+    // The far continent is coastal: a light sea-haze preset so the island's
+    // coast and peaks read through, pushed further than the vale's own.
+    if (isContinentPos(this.sim.player.pos.x)) {
+      return { color: 0x9dc6e2, near: 90, far: 390 };
+    }
     return Renderer.BIOME_FOG[zoneBiomeAt(this.sim.player.pos.z)];
   }
 
@@ -4491,7 +4580,9 @@ export class Renderer {
   }
 
   private updateAmbience(px: number, camY: number, dt: number): void {
-    const inside = px > DUNGEON_X_THRESHOLD;
+    // The procedural continent is open terrain past the yumi band: NOT an
+    // instance, so it must never read as "inside" (dungeon murk/lighting).
+    const inside = px > DUNGEON_X_THRESHOLD && !isContinentPos(px);
     const pz = this.sim.player.pos.z;
     // Private Vale Cup practice instance: the pitch sits far out in an instance
     // band (which would otherwise read as a delve), so give it its own futuristic
@@ -5423,12 +5514,14 @@ export class Renderer {
       if (!this.billboards.has(id) && active) {
         active.update(dt, st, animate);
       }
-      
+
       // Update billboard sprite for players
       const billboardEntry = this.billboards.get(id);
       if (billboardEntry) {
         const { billboard } = billboardEntry;
-        billboard.setDirection(cameraRelativeDirection(facing, this.cameraState?.camYaw ?? Math.PI));
+        billboard.setDirection(
+          cameraRelativeDirection(facing, this.cameraState?.camYaw ?? Math.PI),
+        );
         // Map entity state to sprite animation row: walk/attack/cast are
         // defined in the sprite sheet but only row 0 (idle) exists yet —
         // getAnimRow returns 0 for unknown rows, so these gracefully fall back.
@@ -5438,7 +5531,7 @@ export class Renderer {
         // Hide when dead — the corpse visual handles the dead state
         billboard.mesh.visible = !visuallyDead;
       }
-      
+
       // Skip visual-specific updates for billboard entities
       if (!this.billboards.has(id) && v.visual) {
         // weapon-skin VFX ride the humanoid rig's held weapon; advancing them is a
@@ -5701,6 +5794,17 @@ export class Renderer {
     // frustum; camera-ghost props hide against the current eye-to-camera ray.
     const fogFar = (this.scene.fog as THREE.Fog).far;
     this.terrainView.update(this.camera.position.x, this.camera.position.z, fogFar);
+    // The procedural-continent band renders only while the camera nears it;
+    // otherwise its chunk list would pay a wasted visibility pass every frame.
+    const continentNear = this.camera.position.x > CONTINENT_X_MIN - 400;
+    this.continentTerrain.group.visible = continentNear;
+    this.continentFoliage.group.visible = continentNear;
+    this.continentSettlements.group.visible = continentNear;
+    if (continentNear) {
+      this.continentTerrain.update(this.camera.position.x, this.camera.position.z, fogFar);
+      this.continentFoliage.update(this.camera.position.x, this.camera.position.z, fogFar);
+      this.continentSettlements.update(this.camera.position.x, this.camera.position.z, fogFar);
+    }
     worldStart = markWorldPhase('terrain', worldStart);
     this.propsView.update(
       this.camera.position.x,

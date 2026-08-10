@@ -335,6 +335,64 @@ describe('hud_perf_budget ARM 1: hot painters make no raw DOM write (Node, npm t
 });
 
 // --------------------------------------------------------------------------
+// ARM 1b - static change-gate scan over the Hud per-frame coordinator.
+// --------------------------------------------------------------------------
+// The per-frame path in src/ui/hud.ts update() must keep every body-level class
+// toggle and every pet/stance/talent-button selector behind a change gate or a
+// once-resolved field, so an unchanged frame performs zero queries and zero
+// toggles. This pins the wiring that landed with the fields themselves: if a
+// future edit re-adds a per-frame `$('#petbar')` or raw getElementById in
+// update(), the count below fails. Comment stripping matters here: the field
+// docs mention the selectors, so the scan counts only CODE occurrences.
+function countTokenCode(code: string, token: string): number {
+  return (code.match(new RegExp(token.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g')) ?? [])
+    .length;
+}
+
+describe('hud_perf_budget ARM 1b: Hud coordinator gates per-frame DOM work (Node, npm test)', () => {
+  const hudSrc = readFileSync(new URL('../src/ui/hud.ts', import.meta.url), 'utf8');
+  const hudCode = stripComments(hudSrc);
+
+  it('resolves #petbar / #stancebar once as fields, never per frame', () => {
+    // Field initializers only: the per-frame renderers must read the cached refs.
+    expect(countTokenCode(hudCode, "$('#petbar')")).toBe(1);
+    expect(countTokenCode(hudCode, "$('#stancebar')")).toBe(1);
+    expect(countTokenCode(hudCode, 'this.petBarEl')).toBeGreaterThanOrEqual(1);
+    expect(countTokenCode(hudCode, 'this.stanceBarEl')).toBeGreaterThanOrEqual(1);
+  });
+
+  it('routes pet/stance bar display through the elided writer, not raw style', () => {
+    // Every `bar.style.display` write in the two per-frame renderers is gone;
+    // the only remaining `.style.display` writes in the file are outside the
+    // per-frame renderers (window open/close paths). The writer itself is
+    // allowed: setDisplay is the elided facet, not a raw write.
+    expect(countTokenCode(hudCode, 'this.setDisplay(bar')).toBeGreaterThanOrEqual(4);
+  });
+
+  it('gates the talent-button has-points glow behind lastTalGlow using cached refs', () => {
+    // The two talent buttons are resolved once as fields; update() toggles the
+    // class only when the glow state flips.
+    expect(countTokenCode(hudCode, "getElementById('mm-talents')")).toBe(1);
+    expect(countTokenCode(hudCode, "getElementById('mobile-talents')")).toBe(1);
+    expect(countTokenCode(hudCode, 'this.mmTalentsEl')).toBeGreaterThanOrEqual(1);
+    expect(countTokenCode(hudCode, 'this.mobileTalentsEl')).toBeGreaterThanOrEqual(1);
+    expect(countTokenCode(hudCode, 'this.lastTalGlow')).toBeGreaterThanOrEqual(2);
+    expect(countTokenCode(hudCode, 'classList.toggle(\'has-points\'')).toBe(2);
+  });
+
+  it('gates the body.spirit-mode class behind lastSpiritMode', () => {
+    // A single gated toggle site; the gate field is read and written.
+    expect(countTokenCode(hudCode, "classList.toggle('spirit-mode'")).toBe(1);
+    expect(countTokenCode(hudCode, 'this.lastSpiritMode')).toBeGreaterThanOrEqual(2);
+  });
+
+  it('gates the .low resource-bar pulse class behind lastLowResourceActive', () => {
+    expect(countTokenCode(hudCode, 'this.lastLowResourceActive')).toBeGreaterThanOrEqual(2);
+    expect(countTokenCode(hudCode, "bar.classList.toggle('low'")).toBe(1);
+  });
+});
+
+// --------------------------------------------------------------------------
 // ARM 2 - fake-DOM runtime: skip-rate budget + allocation budget.
 // --------------------------------------------------------------------------
 

@@ -6,11 +6,13 @@
 // Decoupled, like audio/music/voice: its own AudioContext + AudioListener,
 // driven by the `sfxVolume` setting. Efficient by construction: one decoded
 // AudioBuffer per clip shared across every source, startup-only preloading with
-// lazy context loads, a hard concurrency cap, a per-key cooldown, and a tiny
-// pool of persistent looping sources for ambience and sustained spell casts.
+// lazy context loads, a tier-aware concurrency cap (audio_tier_knobs), a
+// per-key cooldown, and a tiny pool of persistent looping sources for ambience
+// and sustained spell casts.
 
 import { apiUrl } from '../client_origin';
 import type { BiomeId } from '../sim/types';
+import { sfxMaxVoices } from './audio_tier_knobs';
 import {
   SFX_CATALOG_HASH,
   SFX_CLIPS,
@@ -18,10 +20,10 @@ import {
   type SfxEntry,
 } from './sfx_manifest.generated';
 import { loadRuntimeSfxPack } from './sfx_runtime_pack';
+import { coerceFxTier } from './ui_tier_knobs';
 import { type WaterElementalCue, waterElementalSamples } from './water_elemental_audio';
 
 const SAMPLE_GAIN = 0.85; // base level for sampled clips; sfxVolume multiplies this
-const MAX_VOICES = 24; // concurrent one-shot sources (frame-budget guard)
 const REF_DISTANCE = 5; // world units at which a sound is at full volume
 const MAX_DISTANCE = 46; // hard cutoff: beyond this, sources are silent/skipped
 const MAX_DISTANCE_SQ = MAX_DISTANCE * MAX_DISTANCE;
@@ -95,7 +97,27 @@ interface AmbientPointSource {
   readonly z: number;
 }
 
-class Sfx {
+export class Sfx {
+  /**
+   * Read the static effects tier for the voice cap. Defaults to the published
+   * data-fx-level stamp (the same source Hud.fxTier() reads), so a preset or
+   * effectsQuality change applies immediately. Headless runs (no document)
+   * read null, which coerceFxTier resolves to 'ultra' (the full cap).
+   */
+  constructor(
+    private readonly readFxLevel: () => string | null | undefined = () =>
+      typeof document !== 'undefined' ? document.documentElement.dataset.fxLevel : null,
+  ) {}
+
+  /** Concurrent one-shot source cap (frame-budget guard): 24 at the full
+   *  effects tiers, 12 on low (audio_tier_knobs.sfxMaxVoices). Resolved from
+   *  the static data-fx-level stamp on each play attempt so preset and
+   *  effectsQuality changes apply immediately, never from the FPS governor
+   *  (the two-controller rule). */
+  private voiceCap(): number {
+    return sfxMaxVoices(coerceFxTier(this.readFxLevel()));
+  }
+
   private ctx: AudioContext | null = null;
   private master: GainNode | null = null;
   private clips: Record<string, SfxEntry> = SFX_CLIPS;
@@ -431,7 +453,7 @@ class Sfx {
       }
       return false;
     }
-    if (this.active >= MAX_VOICES) return false;
+    if (this.active >= this.voiceCap()) return false;
     const now = ctx.currentTime;
     const cd = opts?.cooldown ?? 0.03;
     // -Infinity, not -1: a fresh key (never played) must never be blocked, at
@@ -525,7 +547,7 @@ class Sfx {
       }
       return;
     }
-    if (this.active >= MAX_VOICES) return;
+    if (this.active >= this.voiceCap()) return;
     const now = ctx.currentTime;
     const cd = opts?.cooldown ?? 0;
     // -Infinity sentinel: see the matching comment on playAt's cooldown check.

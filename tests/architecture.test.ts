@@ -221,6 +221,7 @@ const UI_PURE_CORES = [
   'src/ui/reconnect_status_core.ts',
   'src/game/ui_effects_profile.ts',
   'src/game/ui_tier_knobs.ts',
+  'src/game/audio_tier_knobs.ts',
 ].map((rel) => join(repoRoot, rel));
 
 // Pure logic cores that live in src/render (the painter half is Three-side):
@@ -280,6 +281,7 @@ const BARE_NAMED = [
   'src/ui/pet_action_icons.ts',
   'src/game/ui_effects_profile.ts',
   'src/game/ui_tier_knobs.ts',
+  'src/game/audio_tier_knobs.ts',
   'src/render/cast_bar.ts',
 ].map((rel) => join(repoRoot, rel));
 

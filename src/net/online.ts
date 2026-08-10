@@ -1712,16 +1712,27 @@ export class ClientWorld implements IWorld {
     const mi = this.moveInput;
     const facing =
       this.mouselookFacing === null ? '' : Math.round(this.mouselookFacing * 10000).toString();
-    return [
-      mi.forward ? 1 : 0,
-      mi.back ? 1 : 0,
-      mi.turnLeft ? 1 : 0,
-      mi.turnRight ? 1 : 0,
-      mi.strafeLeft ? 1 : 0,
-      mi.strafeRight ? 1 : 0,
-      mi.jump ? 1 : 0,
-      facing,
-    ].join(',');
+    // Same comma-separated shape as the former array join, but built with plain
+    // concatenation: inputSignature() runs once per presented frame online
+    // (flushInput computes it even when the unchanged-signature check bails),
+    // so the array + join would allocate on the every-frame path.
+    return (
+      (mi.forward ? 1 : 0) +
+      ',' +
+      (mi.back ? 1 : 0) +
+      ',' +
+      (mi.turnLeft ? 1 : 0) +
+      ',' +
+      (mi.turnRight ? 1 : 0) +
+      ',' +
+      (mi.strafeLeft ? 1 : 0) +
+      ',' +
+      (mi.strafeRight ? 1 : 0) +
+      ',' +
+      (mi.jump ? 1 : 0) +
+      ',' +
+      facing
+    );
   }
 
   private sendInput(now = performance.now(), changedOnly = false): boolean {
@@ -2305,14 +2316,21 @@ export class ClientWorld implements IWorld {
       const wasDead = e.dead;
       const nowDead = !!w.dead;
       if ((wasDead && !nowDead) || teleDx * teleDx + teleDz * teleDz > TELEPORT_SNAP_DIST_SQ) {
-        e.prevPos = { x: w.x, y: w.y, z: w.z };
+        // Snap the re-anchor basis to the destination in place. prevPos is
+        // always an existing object (blankEntity/creation), so mutating it
+        // instead of replacing it avoids a fresh {x,y,z} per entity per 20 Hz
+        // snapshot (per-crowd GC churn on the mirror path, the same class the
+        // billboard pass removed from its siblings). Nothing aliases prevPos
+        // to pos, and the renderer reads the fields live, so identity stays
+        // stable with zero allocation.
+        e.prevPos.x = w.x;
+        e.prevPos.y = w.y;
+        e.prevPos.z = w.z;
         e.prevFacing = w.f;
       } else {
-        e.prevPos = {
-          x: e.prevPos.x + (e.pos.x - e.prevPos.x) * entAlpha,
-          y: e.prevPos.y + (e.pos.y - e.prevPos.y) * entAlpha,
-          z: e.prevPos.z + (e.pos.z - e.prevPos.z) * entAlpha,
-        };
+        e.prevPos.x = e.prevPos.x + (e.pos.x - e.prevPos.x) * entAlpha;
+        e.prevPos.y = e.prevPos.y + (e.pos.y - e.prevPos.y) * entAlpha;
+        e.prevPos.z = e.prevPos.z + (e.pos.z - e.prevPos.z) * entAlpha;
         // wrapAngle keeps the stored basis bounded: converging toward a facing
         // that keeps crossing the +-PI seam otherwise grows prevFacing by 2*PI
         // per revolution, unbounded over a long session.

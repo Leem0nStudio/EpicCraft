@@ -1,8 +1,33 @@
 // Billboard sprite system - barrel exports.
-export { BillboardSprite } from './billboard';
+
 export type { BillboardSpriteOptions } from './billboard';
-export { loadSpriteSheetTexture, loadSpriteSheetMeta, preloadBillboardMeta, preloadBillboardTexture, getMetaSync, createBillboardMaterial, updateMaterialFrame, getSpriteUrlsForEntity } from './loader';
+export { BillboardSprite } from './billboard';
 export type { SpriteEntry } from './loader';
-export { getSpriteFilename, getSpriteUrls, getAllSpriteFilenames, registerSprite } from './sprite_registry';
-export type { Direction, AnimationType, SpriteSheetMeta, BillboardAnimState } from './types';
-export { createBillboardAnimState, getSourceDirection, getFrameUVs, getAnimRow, getAnimFPS, cameraRelativeDirection } from './types';
+export {
+  createBillboardGeometry,
+  getBillboardMaterial,
+  getFrameUvArray,
+  getMetaSync,
+  getSpriteUrlsForEntity,
+  loadSpriteSheetMeta,
+  loadSpriteSheetTexture,
+  preloadBillboardMeta,
+  preloadBillboardTexture,
+  updateBillboardFrame,
+} from './loader';
+export {
+  getAllSpriteFilenames,
+  getSpriteFilename,
+  getSpriteUrls,
+  registerSprite,
+} from './sprite_registry';
+export type { AnimationType, BillboardAnimState, Direction, SpriteSheetMeta } from './types';
+export {
+  cameraRelativeDirection,
+  createBillboardAnimState,
+  getAnimFPS,
+  getAnimRow,
+  getFrameQuadUVs,
+  getFrameUVs,
+  getSourceDirection,
+} from './types';

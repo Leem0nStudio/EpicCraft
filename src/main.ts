@@ -2851,6 +2851,15 @@ async function startGame(
 
   function frame(now: number): void {
     requestAnimationFrame(frame);
+    // LOW-tier presentation cap (~30 FPS): GFX.frameCapMs is 33.33 ms on the low tier and 0
+    // elsewhere. Hold the last presented frame until the cap elapses so a device that cannot
+    // hold 60 FPS gets stable, frame-paced 30 FPS and half the per-second GPU/CPU work instead
+    // of 20-40 FPS stutter. Cosmetic pacing only: the sim still advances at its fixed 20 Hz
+    // through the loop accumulator, and the runtime render governor classifies the resulting
+    // 28-48 ms cadence as an external frame cap, so it will not additionally degrade quality
+    // (render_budget.ts EXTERNAL_FRAME_CAP_MIN_MS/MAX_MS). `last` only moves when the body
+    // runs, so the gate measures time since the last PRESENTED frame.
+    if (GFX.frameCapMs > 0 && now - last < GFX.frameCapMs) return;
     let frameDt = (now - last) / 1000;
     last = now;
     if (frameDt > 0.25) frameDt = 0.25;

@@ -78,6 +78,14 @@ export interface GfxSettings {
   /** devicePixelRatio is capped here — 2.5 everywhere is a silent perf killer */
   readonly pixelRatioCap: number;
   readonly shadowMap: number;
+  /**
+   * Shadow-map filter. PCFShadowMap (4-tap) for low/medium — the weak-device
+   * defaults; the soft 5-tap PCFSoftShadowMap only pays off at 4096-res maps on
+   * high/ultra. The renderer reads this once at startup when it configures
+   * webgl.shadowMap.type. The filter is baked into compiled shaders, so it must
+   * never be toggled at runtime.
+   */
+  readonly shadowFilter: 'pcf' | 'pcfsoft';
   /** PBR MeshStandardMaterial; low keeps Lambert */
   readonly standardMaterials: boolean;
   /** Art-directed low-cost profile: richer cheap-path visuals without PBR/splat shaders. */
@@ -99,6 +107,16 @@ export interface GfxSettings {
    * can see or react to: every knob here is cosmetic sharpness only (fairness rule).
    */
   readonly constrainedMemory: boolean;
+  /**
+   * Presentation frame cap in ms (0 = uncapped). The LOW tier caps at ~30 FPS (33.33 ms)
+   * for the weakest devices: a machine that cannot hold 60 FPS gets half the per-second
+   * GPU/CPU work and stable, frame-paced 30 FPS instead of 20-40 FPS stutter. Cosmetic
+   * pacing only: the sim still advances at its fixed 20 Hz through the loop accumulator,
+   * and the runtime render governor already classifies 28-48 ms cadences as an external
+   * frame cap, so it will not additionally degrade quality (see render_budget.ts
+   * EXTERNAL_FRAME_CAP_MIN_MS/MAX_MS). Consumed by the frame loop in main.ts.
+   */
+  readonly frameCapMs: number;
 }
 
 export interface GfxRuntimeBudget {
@@ -336,6 +354,7 @@ function settingsFor(tier: GfxTier, hints?: Partial<GfxRuntimeHints>): GfxSettin
   // graphics-settings fairness line.
   const constrainedMemory = isConstrainedBrowser({
     deviceMemory: hints?.deviceMemory,
+    hardwareConcurrency: hints?.hardwareConcurrency,
     maxTouchPoints: hints?.maxTouchPoints ?? 0,
     coarsePointer: hints?.coarsePointer ?? false,
     narrowViewport: hints?.narrowViewport ?? false,
@@ -352,13 +371,26 @@ function settingsFor(tier: GfxTier, hints?: Partial<GfxRuntimeHints>): GfxSettin
     // it ~1ms-class on real GPUs; ultra gets full-res Medium
     ao: tier === 'high' || tier === 'ultra',
     msaaSamples: (tier === 'high' || tier === 'ultra') && !constrainedMemory ? 4 : 0,
-    pixelRatioCap: constrainedMemory
-      ? 1.48
-      : tier === 'low' || tier === 'medium'
-        ? 1.48
-        : tier === 'high'
-          ? 1.75
-          : 2.5,
+    // DPR is capped here. A flat 2.5 everywhere is a silent perf killer. The LOW tier drops to
+    // 1.0 (the pixel-ratio floor for the weakest devices: on a 2x-3x phone display that
+    // cuts fill-rate ~2-3x, the single cheapest large win on old GPUs). Medium keeps the
+    // classic 1.48 and constrained high/ultra keep 1.48 (flagship phones with masked GPU
+    // names already shed the big one-shot allocations; a sub-1.48 cap there would
+    // unnecessarily soften their image). Cosmetic sharpness only (fairness rule).
+    pixelRatioCap:
+      tier === 'low'
+        ? 1.0
+        : constrainedMemory
+          ? 1.48
+          : tier === 'medium'
+            ? 1.48
+            : tier === 'high'
+              ? 1.75
+              : 2.5,
+    // Presentation frame cap (ms): the LOW tier caps at ~30 FPS (33.33 ms) so a weak
+    // device that cannot hold 60 FPS gets stable, frame-paced frames instead of stutter.
+    // Medium and up stay uncapped (0). See the frameCapMs field on GfxSettings.
+    frameCapMs: tier === 'low' ? 1000 / 30 : 0,
     shadowMap:
       tier === 'low'
         ? 2048
@@ -369,6 +401,10 @@ function settingsFor(tier: GfxTier, hints?: Partial<GfxRuntimeHints>): GfxSettin
           : constrainedMemory
             ? 2048
             : 4096,
+    // PCFShadowMap (4-tap) for low/medium — the weak-device tiers where the soft
+    // 5-tap PCFSoft filter's blur does not read at 2048-2560 res and its per-frame
+    // cost is pure waste. PCFSoft only on high/ultra where it softens at 4096 res.
+    shadowFilter: tier === 'high' || tier === 'ultra' ? 'pcfsoft' : 'pcf',
     standardMaterials: tier === 'medium' || tier === 'high' || tier === 'ultra',
     lowPlus: tier === 'low',
     leanFoliage: tier === 'low' || (tier === 'medium' && weakIntegratedGpu),
@@ -385,7 +421,8 @@ function settingsFor(tier: GfxTier, hints?: Partial<GfxRuntimeHints>): GfxSettin
       settings = { ...settings, grassRadius: 34, grassStep: 3.8 };
     if ((hints.effectsQuality ?? 1) < EFFECTS_QUALITY_LOW_CUTOFF)
       settings = { ...settings, composer: false, ao: false, msaaSamples: 0, maxPointLights: 3 };
-    if ((hints.shadowQuality ?? 1) < 0.5) settings = { ...settings, shadowMap: 1024 };
+    if ((hints.shadowQuality ?? 1) < 0.5)
+      settings = { ...settings, shadowMap: 1024, shadowFilter: 'pcf' };
   }
   return settings;
 }
@@ -478,10 +515,24 @@ function runtimeHints(): GfxRuntimeHints {
 export function isConstrainedBrowser(
   hints: Pick<
     GfxRuntimeHints,
-    'deviceMemory' | 'maxTouchPoints' | 'coarsePointer' | 'narrowViewport'
+    'deviceMemory' | 'hardwareConcurrency' | 'maxTouchPoints' | 'coarsePointer' | 'narrowViewport'
   >,
 ): boolean {
   if (hints.deviceMemory !== undefined && hints.deviceMemory <= 4) return true;
+  // Firefox and Safari omit deviceMemory entirely, so a low-core desktop there (the
+  // classic 2-4 core office/entry machine with an unmasked-integrated or generic GPU)
+  // never matched the memory-ceiling profile. hardwareConcurrency is the only remaining
+  // hardware hint: treat <= 4 cores WITHOUT a reported deviceMemory as constrained (the
+  // memory signal exists on Chromium, so this branch only fires where it cannot). This
+  // sheds the one-shot GPU allocations (shadows/MSAA/DPR) on old desktops WITHOUT
+  // touching the tier, so the PITFALL-1 rule (cores never demote a tier) stays intact. This
+  // only adds a cosmetic sharpness shed, never a lower tier.
+  if (
+    hints.deviceMemory === undefined &&
+    hints.hardwareConcurrency !== undefined &&
+    hints.hardwareConcurrency <= 4
+  )
+    return true;
   return hints.maxTouchPoints > 0 && (hints.coarsePointer || hints.narrowViewport);
 }
 
@@ -518,11 +569,28 @@ export function classifyGpuRenderer(name: string | undefined): GpuClass {
   // mid-integrated bucket so an Iris Plus 6xx / UHD 6xx / HD 5xx-6xx stays weak, consistent with
   // the existing leanFoliage treatment in settingsFor).
   if (isWeakIntegratedGpu(name)) return 'weak';
-  // Strong desktop discrete + Apple Silicon. The `(\(tm\))?` tolerates the "(TM)" some Windows
-  // drivers print after "Radeon" ("Radeon(TM) RX 580").
+  // Old / entry discrete NVIDIA and pre-GCN AMD (2006-2012 era, the classic "old device" parts):
+  // GeForce 7/8/9-series (7600/8600/8800/9400M/9600/9800), the GT/GTS/GTX 2xx-5xx lines
+  // (GT200/Fermi: GT 220, GTS 250, GTX 260/460/560/580), the entry GeForce GT 6xx/7xx/10xx line
+  // (GT 610/710/730/1030), old mobile M-suffix parts (GeForce 310M/320M/330M/810M/910M), pre-2013
+  // Quadro workstations (FX, K, 600..6000), and Radeon HD 2xxx-6xxx (2007-2011). The
+  // `geforce`/`nvidia` tokens in the strongDesktop rule below used to send these to ULTRA on
+  // exactly the old machines that can least afford it (and ultra opts the runtime governor
+  // OUT); naming them here resolves them weak -> LOW (30 FPS cap, DPR 1.0, Lambert) instead.
+  // Modern parts never match: RTX / GTX 1xxx+ (Pascal/Turing) and GTX 6xx/7xx/9xx
+  // (Kepler/Maxwell mid) all fall through, as do Radeon HD 7xxx+ (GCN, 2012+).
   if (
-    /\b(rtx|gtx)\b|geforce|radeon(\(tm\))?\s?(rx|pro|vii)|\barc\b|\bnvidia\b|apple\s?m[1-9]/.test(n)
+    /geforce [789]\d{3}|geforce (gt|gts|gtx) [2-5]\d{2}(m)?\b|geforce gt (6|7|10)\d{2}(m)?\b|geforce \d{3}m|quadro (fx|k\d|\d{3,4})|radeon(\(tm\))?\s?hd [23456]\d{3}/.test(
+      n,
+    )
   )
+    return 'weak';
+  // Strong desktop discrete + Apple Silicon. The `(\(tm\))?` tolerates the "(TM)" some Windows
+  // drivers print after "Radeon" ("Radeon(TM) RX 580"). A bare vendor token ("NVIDIA
+  // Corporation", "AMD") is deliberately NOT here: that is a masked name with no model info,
+  // and the masked-name rule says it falls through to unknown -> the safe medium fallback (the
+  // runtime governor is ON below ultra), never an auto-ultra from a generic old-laptop driver.
+  if (/\b(rtx|gtx)\b|geforce|radeon(\(tm\))?\s?(rx|pro|vii)|\barc\b|apple\s?m[1-9]/.test(n))
     return 'strongDesktop';
   // Recent flagship mobile.
   if (
@@ -548,7 +616,7 @@ export function classifyGpuRenderer(name: string | undefined): GpuClass {
     return 'midMobile';
   // Old / low mobile + old integrated.
   if (
-    /adreno \(tm\) [34]\d\d|mali-t|mali-4\d\d|mali-g(31|51|52)\b|powervr (sgx|g6)|apple a([5-9]|10)\b|(hd|uhd) graphics (\d{3}\b|[45]\d{2})|intel.*gma/.test(
+    /adreno \(tm\) [34]\d\d|mali-t|mali-4\d\d|mali-g(31|51|52)\b|powervr (sgx|g6)|apple a([5-9]|10)\b|(hd|uhd) graphics (\d{3,4}\b|[45]\d{2})|intel.*gma/.test(
       n,
     )
   )

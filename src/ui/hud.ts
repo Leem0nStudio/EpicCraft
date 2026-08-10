@@ -1162,6 +1162,24 @@ export class Hud {
   private resurrectHealerBtnEl = $('#resurrect-healer-btn');
   // Cached once (was re-queried every frame): the near-death screen-edge overlay.
   private lowHealthVignetteEl = document.getElementById('low-health-vignette');
+  // The pet + stance bars are rebuilt on the per-frame path (renderPetBar /
+  // renderStanceBar run every update()); their roots are resolved ONCE here so
+  // the per-frame path never re-queries #petbar / #stancebar by selector.
+  private petBarEl = $('#petbar') as HTMLElement;
+  private stanceBarEl = $('#stancebar') as HTMLElement;
+  // Talent-button glow: cached refs + a change-gated toggle on the slow tier, so
+  // the per-frame path never re-queries #mm-talents / #mobile-talents and never
+  // re-toggles a class whose state did not move (unspent points change only on
+  // level-up or spend).
+  private mmTalentsEl = document.getElementById('mm-talents');
+  private mobileTalentsEl = document.getElementById('mobile-talents');
+  private lastTalGlow = false;
+  // Change-gate for the .low resource-bar pulse class: the toggle fires only when
+  // the low-resource state flips, so an unchanged frame costs zero DOM work.
+  private lastLowResourceActive = false;
+  // Change-gate for the body.spirit-mode class: fires only on a death/release
+  // transition, never per frame.
+  private lastSpiritMode = false;
   private hotWriteCache = new Map<HTMLElement, string>();
   // Multi-slot caches for the per-frame writers: one element holds many
   // custom properties / toggled classes, so these key per (element, prop) and
@@ -6275,7 +6293,7 @@ export class Hud {
   // for no spec). Rebuilds only when the known-stance set or the active stance
   // changes (sig elision, like the pet bar).
   private renderStanceBar(): void {
-    const bar = $('#stancebar') as HTMLElement;
+    const bar = this.stanceBarEl;
     const isWarrior = this.sim.cfg.playerClass === 'warrior';
     const knownStances = isWarrior
       ? this.sim.known.filter((k) => k.def.exclusiveGroup === WARRIOR_STANCE_GROUP)
@@ -6285,14 +6303,14 @@ export class Hud {
     const activeAura = this.sim.player.auras.find((a) => knownSet.has(a.id));
     const model = stanceBarView(isWarrior, knownIds, activeAura ? activeAura.id : null);
     if (!model.visible) {
-      bar.style.display = 'none';
+      this.setDisplay(bar, 'none');
       if (this.lastStanceBarSig !== '') {
         bar.innerHTML = '';
         this.lastStanceBarSig = '';
       }
       return;
     }
-    bar.style.display = 'flex';
+    this.setDisplay(bar, 'flex');
     if (model.sig === this.lastStanceBarSig) return;
     this.lastStanceBarSig = model.sig;
     bar.innerHTML = '';
@@ -6329,7 +6347,7 @@ export class Hud {
   }
 
   private renderPetBar(): void {
-    const bar = $('#petbar') as HTMLElement;
+    const bar = this.petBarEl;
     const pet = this.ownPet();
     // Value-diffed body-class flag the mobile top-band layout reads (see field doc):
     // toggled only on a real transition so the per-frame path stays write-free.
@@ -6343,7 +6361,7 @@ export class Hud {
       document.body.classList.toggle('mobile-pet-active', petPresent);
     }
     if (!pet || pet.dead) {
-      bar.style.display = 'none';
+      this.setDisplay(bar, 'none');
       if (this.lastPetBarSig !== '') {
         bar.innerHTML = '';
         this.lastPetBarSig = '';
@@ -6369,7 +6387,7 @@ export class Hud {
         ? ''
         : (petFeedButtonState(pet.hp, pet.maxHp, this.hasPetFood()).reasonKey ?? 'ok');
     const sig = `${pet.id}:${ownerClass}:${mode}:${actionCooldownSig}:${this.pendingPetFeed ? 'feed' : ''}:${this.petModeMenuOpen ? 'modes' : ''}:${feedSig}`;
-    bar.style.display = 'flex';
+    this.setDisplay(bar, 'flex');
     if (sig === this.lastPetBarSig) return;
     this.lastPetBarSig = sig;
     bar.innerHTML = '';
@@ -6834,8 +6852,14 @@ export class Hud {
     // talent buttons glow while the player has unspent points (and a tree exists)
     const tp = sim.talentPoints();
     const talGlow = talentsFor(sim.cfg.playerClass) !== null && tp.spent < tp.total;
-    document.getElementById('mm-talents')?.classList.toggle('has-points', talGlow);
-    document.getElementById('mobile-talents')?.classList.toggle('has-points', talGlow);
+    // Change-gated on lastTalGlow: unspent-point state moves only on level-up or
+    // spend, so an unchanged frame performs zero queries and zero class toggles
+    // (mmTalentsEl / mobileTalentsEl are resolved once as fields).
+    if (talGlow !== this.lastTalGlow) {
+      this.lastTalGlow = talGlow;
+      this.mmTalentsEl?.classList.toggle('has-points', talGlow);
+      this.mobileTalentsEl?.classList.toggle('has-points', talGlow);
+    }
 
     // Town Focus (#1143): the minimap button (and, if open, the panel's live
     // gate) only ever shows/works while standing in a town hub. Cheap zone
@@ -7257,7 +7281,10 @@ export class Hud {
     const ghost = p.dead && p.ghost;
     const deadInArena = p.dead && !!this.sim.arenaInfo?.match;
     if (!p.dead) this.closeResurrectionPrompt();
-    document.body.classList.toggle('spirit-mode', ghost);
+    if (ghost !== this.lastSpiritMode) {
+      this.lastSpiritMode = ghost;
+      document.body.classList.toggle('spirit-mode', ghost);
+    }
     this.setDisplay(this.deathOverlayEl, p.dead && !ghost && !deadInArena ? 'flex' : 'none');
     if (ghost) {
       const corpseInRange = !!p.corpsePos && dist2d(p.pos, p.corpsePos) <= GHOST_CORPSE_REZ_RANGE;
@@ -7490,10 +7517,13 @@ export class Hud {
     });
     const bar = this.pfResourceEl; // the cached ref the family painter also writes
     // `.low` is this method's own class (the unit_frame painter toggles only the
-    // mutually-exclusive power-type classes, never `low`), so toggling it each frame
-    // is cheap and idempotent. Only the expensive style / label writes below are
-    // diffed against the cached signature.
-    bar.classList.toggle('low', v.active);
+    // mutually-exclusive power-type classes, never `low`). Change-gated on
+    // lastLowResourceActive so an unchanged frame performs zero class toggles; the
+    // expensive style / label writes below stay diffed against the cached signature.
+    if (v.active !== this.lastLowResourceActive) {
+      this.lastLowResourceActive = v.active;
+      bar.classList.toggle('low', v.active);
+    }
     const sig = v.active ? `${v.opacity.toFixed(2)}|${v.pulseSeconds.toFixed(2)}|${v.label}` : '';
     if (sig === this.lastLowResourceSig) return;
     this.lastLowResourceSig = sig;

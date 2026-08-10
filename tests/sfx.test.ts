@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { sfx } from '../src/game/sfx';
+import { Sfx, sfx } from '../src/game/sfx';
 import { SFX_CLIPS, type SfxEntry } from '../src/game/sfx_manifest.generated';
 
 // The footstep "jingling" bug: foot clips are ~0.48s but steps fire every ~0.22s
@@ -278,5 +278,57 @@ describe('footstep toggle', () => {
     sfx.footstep(0, 0, 0, 'grass', true, true);
     expect(sources.length).toBe(muted + 1);
     expect(lastSource().started).toBe(true);
+  });
+});
+
+// The tier-aware concurrent-voice cap (audio_tier_knobs.sfxMaxVoices): 24
+// one-shot sources at the full effects tiers, 12 on low. The engine resolves
+// the cap from the static data-fx-level stamp per play attempt (the same
+// source Hud.fxTier() reads), so a low-tier device halves the worst-case
+// mixing load while medium/high/ultra keep the pre-tiering hard cap. A source
+// is only ever SKIPPED under load, never silenced selectively: 12 concurrent
+// cues still covers a busy fight, and the cap is the frame-budget guard, not a
+// signal gate.
+describe('tier-aware voice cap', () => {
+  it('caps concurrent one-shot sources at 12 on the low effects tier', () => {
+    const low = new Sfx(() => 'low');
+    low.init();
+    const buffers = (low as unknown as { buffers: Map<string, { duration: number }> }).buffers;
+    const before = sources.length;
+    for (let i = 0; i < 13; i++) buffers.set(`cap_low_${i}`, { duration: 0.5 });
+    let played = 0;
+    for (let i = 0; i < 13; i++) {
+      if (low.playAt(`cap_low_${i}`, 0, 0, 0)) played++;
+    }
+    expect(played).toBe(12);
+    expect(sources.length).toBe(before + 12);
+  });
+
+  it('keeps the full 24-voice cap on the high effects tier', () => {
+    const high = new Sfx(() => 'high');
+    high.init();
+    const buffers = (high as unknown as { buffers: Map<string, { duration: number }> }).buffers;
+    const before = sources.length;
+    for (let i = 0; i < 25; i++) buffers.set(`cap_high_${i}`, { duration: 0.5 });
+    let played = 0;
+    for (let i = 0; i < 25; i++) {
+      if (high.playAt(`cap_high_${i}`, 0, 0, 0)) played++;
+    }
+    expect(played).toBe(24);
+    expect(sources.length).toBe(before + 24);
+  });
+
+  it('defaults to the full cap when no fx-level stamp exists (headless / unset)', () => {
+    const headless = new Sfx();
+    headless.init();
+    const buffers = (headless as unknown as { buffers: Map<string, { duration: number }> }).buffers;
+    const before = sources.length;
+    for (let i = 0; i < 25; i++) buffers.set(`cap_headless_${i}`, { duration: 0.5 });
+    let played = 0;
+    for (let i = 0; i < 25; i++) {
+      if (headless.playAt(`cap_headless_${i}`, 0, 0, 0)) played++;
+    }
+    expect(played).toBe(24);
+    expect(sources.length).toBe(before + 24);
   });
 });

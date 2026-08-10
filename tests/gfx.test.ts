@@ -41,6 +41,19 @@ describe('graphics tier resolution', () => {
     ).toBe('ultra');
     // ...and a recognized weak GPU drops it to low (the cost ceiling), not the old ultra default.
     expect(tierFromHints({ ...desktop, gpuRenderer: 'Adreno (TM) 330' }, false)).toBe('low');
+    // an old discrete desktop GPU (GeForce 9400M / GTX 460 era) also resolves LOW instead of
+    // the old strongDesktop -> auto-ultra trap (the classic old-laptop upgrade path)
+    expect(
+      tierFromHints({ ...desktop, gpuRenderer: 'ANGLE (NVIDIA, NVIDIA GeForce 9400M)' }, false),
+    ).toBe('low');
+    expect(
+      tierFromHints({ ...desktop, gpuRenderer: 'ANGLE (NVIDIA, NVIDIA GeForce GTX 460)' }, false),
+    ).toBe('low');
+    // a masked vendor-only string ("NVIDIA Corporation") stays on the safe medium fallback,
+    // never high/ultra: an unrecognized generic driver must not top the tier ladder
+    expect(
+      tierFromHints({ ...desktop, gpuRenderer: 'ANGLE (NVIDIA, NVIDIA Corporation)' }, false),
+    ).toBe('medium');
   });
 
   it('honors explicit URL tier overrides', () => {
@@ -60,6 +73,30 @@ describe('graphics tier resolution', () => {
     expect(isConstrainedBrowser({ ...desktop, deviceMemory: 4 })).toBe(true);
     expect(isConstrainedBrowser({ ...desktop, maxTouchPoints: 1 })).toBe(false);
     expect(isConstrainedBrowser(desktop)).toBe(false);
+    // Firefox and Safari omit deviceMemory entirely, so the ONLY hardware hint left there is
+    // core count: <= 4 cores without a reported deviceMemory must also count as constrained
+    // (the memory signal exists on Chromium, so this branch only fires where it cannot).
+    expect(isConstrainedBrowser({ ...desktop, hardwareConcurrency: 4 })).toBe(true);
+    expect(isConstrainedBrowser({ ...desktop, hardwareConcurrency: 8 })).toBe(false);
+    expect(isConstrainedBrowser({ ...desktop, deviceMemory: 8, hardwareConcurrency: 2 })).toBe(
+      false,
+    );
+  });
+
+  it('wires the low-core constrained shed through settingsFor, without touching the tier', () => {
+    // settingsFor is the PRODUCTION call site: runtimeHints() provides hardwareConcurrency,
+    // and isConstrainedBrowser only fires the low-core branch when deviceMemory is absent.
+    // This pins the wiring (the branch must not exist only in the predicate's tests), and
+    // that the shed is cosmetic-sharpness-only: the tier stays medium (PITFALL-1: cores
+    // never demote a tier), only the one-shot allocations shrink.
+    const lowCores = gfxInternalsForTest.settingsFor('medium', { hardwareConcurrency: 4 });
+    const manyCores = gfxInternalsForTest.settingsFor('medium', { hardwareConcurrency: 8 });
+    expect(lowCores.constrainedMemory).toBe(true);
+    expect(manyCores.constrainedMemory).toBe(false);
+    expect(lowCores.tier).toBe('medium');
+    expect(manyCores.tier).toBe('medium');
+    expect(lowCores.shadowMap).toBe(1536);
+    expect(manyCores.shadowMap).toBe(2560);
   });
 
   it('resolves an unset preset by device, honoring legacy explicit values and URL force', () => {
@@ -182,6 +219,21 @@ describe('graphics tier resolution', () => {
     expect(medium.shadowMap).toBeGreaterThan(low.shadowMap);
     expect(medium.shadowMap).toBeLessThan(high.shadowMap);
     expect(medium.pixelRatioCap).toBeLessThan(high.pixelRatioCap);
+    // Shadow filter: 4-tap PCF on low/medium (the weak-device tiers, and the default
+    // fallback for unrecognized devices), soft 5-tap PCFSoft only on high/ultra where
+    // it reads at 4096-res maps. The renderer consumes this once at startup
+    // (webgl.shadowMap.type); it is baked into shader defines, never toggled at runtime.
+    expect(low.shadowFilter).toBe('pcf');
+    expect(medium.shadowFilter).toBe('pcf');
+    expect(high.shadowFilter).toBe('pcfsoft');
+    expect(ultra.shadowFilter).toBe('pcfsoft');
+    // LOW-tier presentation frame cap: the low tier is the only one that caps at ~30 FPS
+    // (33.33 ms); medium and up present uncapped (0). The main.ts frame loop consumes
+    // GFX.frameCapMs, so this pins the value the loop actually gates on.
+    expect(low.frameCapMs).toBe(1000 / 30);
+    expect(medium.frameCapMs).toBe(0);
+    expect(high.frameCapMs).toBe(0);
+    expect(ultra.frameCapMs).toBe(0);
 
     expect(high.standardMaterials).toBe(true);
     expect(high.composer).toBe(true);
@@ -315,6 +367,26 @@ describe('graphics tier resolution', () => {
     );
     expect(classifyGpuRenderer('AMD Radeon Vega 8 Graphics')).toBe('midIntegrated');
     expect(classifyGpuRenderer('Mali-G57')).toBe('midMobile');
+    // old / entry discrete NVIDIA + pre-GCN AMD (2006-2012 era) -> weak, NOT strongDesktop:
+    // the bare `geforce`/`nvidia`/`gtx` tokens used to send these to ULTRA on exactly the old
+    // machines that can least afford it (and ultra opts the runtime governor out).
+    expect(classifyGpuRenderer('ANGLE (NVIDIA, NVIDIA GeForce 9400M)')).toBe('weak');
+    expect(classifyGpuRenderer('ANGLE (NVIDIA, NVIDIA GeForce 9800 GT)')).toBe('weak');
+    expect(classifyGpuRenderer('ANGLE (NVIDIA, NVIDIA GeForce GT 710)')).toBe('weak');
+    expect(classifyGpuRenderer('ANGLE (NVIDIA, NVIDIA GeForce GTX 460)')).toBe('weak');
+    expect(classifyGpuRenderer('ANGLE (NVIDIA, NVIDIA GeForce GTX 580)')).toBe('weak');
+    expect(classifyGpuRenderer('ANGLE (NVIDIA, NVIDIA GeForce 310M)')).toBe('weak');
+    expect(classifyGpuRenderer('NVIDIA Quadro FX 3800')).toBe('weak');
+    expect(classifyGpuRenderer('AMD Radeon HD 5770')).toBe('weak');
+    expect(classifyGpuRenderer('AMD Radeon(TM) HD 6770M')).toBe('weak');
+    // ...while the 2012+ mid parts and the masked vendor-only name stay off the weak bucket:
+    // Kepler/Maxwell GTX 6xx+ and Pascal/RTX keep strongDesktop; GCN HD 7xxx stays unknown ->
+    // medium; and a bare vendor token ("NVIDIA Corporation") is a MASKED name -> unknown ->
+    // the safe medium fallback, never an auto-ultra from a generic old-laptop driver.
+    expect(classifyGpuRenderer('ANGLE (NVIDIA, NVIDIA GeForce GTX 660)')).toBe('strongDesktop');
+    expect(classifyGpuRenderer('ANGLE (NVIDIA, NVIDIA GeForce GTX 1080)')).toBe('strongDesktop');
+    expect(classifyGpuRenderer('AMD Radeon HD 7950')).toBe('unknown');
+    expect(classifyGpuRenderer('ANGLE (NVIDIA, NVIDIA Corporation)')).toBe('unknown');
     // masked / unplaced / empty -> unknown -> the MEDIUM fallback path
     expect(classifyGpuRenderer('Apple GPU')).toBe('unknown');
     expect(classifyGpuRenderer(undefined)).toBe('unknown');

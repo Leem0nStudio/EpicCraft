@@ -1,13 +1,25 @@
 import { GFX_BUCKET_BANDS, type GfxBucketBands, type GfxRuntimeBudget, type GfxTier } from './gfx';
 
 export type RenderBudgetMode = 'disabled' | 'stable' | 'degrading' | 'recovering';
-export type RenderBudgetReason = 'disabled' | 'startup' | 'stable' | 'frame' | 'frame-cap' | 'submit' | 'submit-stall' | 'draw' | 'grass' | 'recover';
+export type RenderBudgetReason =
+  | 'disabled'
+  | 'startup'
+  | 'stable'
+  | 'frame'
+  | 'frame-cap'
+  | 'submit'
+  | 'submit-stall'
+  | 'draw'
+  | 'grass'
+  | 'recover';
 
 export interface RenderBudgetLevels {
   grass: number;
   foliage: number;
   vfx: number;
   lighting: number;
+  /** Sun shadow pass (0 = skipped via per-light autoUpdate freeze, 1 = every frame). */
+  shadow: number;
   resolution: number;
 }
 
@@ -22,6 +34,8 @@ export interface RenderBudgetCaps {
   minFoliageLevel: number;
   minVfxLevel: number;
   minLightingLevel: number;
+  /** 0 lets the governor freeze the sun shadow pass entirely; 1 keeps it running every frame. */
+  minShadowLevel: number;
 }
 
 export interface RenderBudgetState {
@@ -75,6 +89,7 @@ const CAPS_BY_TIER: Record<GfxTier, RenderBudgetCaps> = {
     minFoliageLevel: 0.68,
     minVfxLevel: 0.84,
     minLightingLevel: 0.78,
+    minShadowLevel: 0,
   },
   medium: {
     targetCalls: 420,
@@ -87,6 +102,7 @@ const CAPS_BY_TIER: Record<GfxTier, RenderBudgetCaps> = {
     minFoliageLevel: 0.5,
     minVfxLevel: 0.58,
     minLightingLevel: 0.45,
+    minShadowLevel: 0,
   },
   high: {
     targetCalls: 620,
@@ -99,6 +115,7 @@ const CAPS_BY_TIER: Record<GfxTier, RenderBudgetCaps> = {
     minFoliageLevel: 0.6,
     minVfxLevel: 0.68,
     minLightingLevel: 0.62,
+    minShadowLevel: 0,
   },
   ultra: {
     targetCalls: 820,
@@ -111,6 +128,7 @@ const CAPS_BY_TIER: Record<GfxTier, RenderBudgetCaps> = {
     minFoliageLevel: 0.78,
     minVfxLevel: 0.86,
     minLightingLevel: 0.78,
+    minShadowLevel: 0,
   },
 };
 
@@ -129,6 +147,7 @@ function copyLevels(levels: RenderBudgetLevels): RenderBudgetLevels {
     foliage: round2(levels.foliage),
     vfx: round2(levels.vfx),
     lighting: round2(levels.lighting),
+    shadow: round2(levels.shadow),
     resolution: round2(levels.resolution),
   };
 }
@@ -139,8 +158,18 @@ function copyCaps(caps: RenderBudgetCaps): RenderBudgetCaps {
 
 const SUBMIT_STALL_MS = 120;
 const SUBMIT_STALL_URGENT_MS = 250;
-const SUBMIT_STALL_HOLD_SECONDS: Record<GfxTier, number> = { low: 18, medium: 14, high: 8, ultra: 6 };
-const SUBMIT_STALL_URGENT_HOLD_SECONDS: Record<GfxTier, number> = { low: 30, medium: 24, high: 14, ultra: 12 };
+const SUBMIT_STALL_HOLD_SECONDS: Record<GfxTier, number> = {
+  low: 18,
+  medium: 14,
+  high: 8,
+  ultra: 6,
+};
+const SUBMIT_STALL_URGENT_HOLD_SECONDS: Record<GfxTier, number> = {
+  low: 30,
+  medium: 24,
+  high: 14,
+  ultra: 12,
+};
 const SUBMIT_STALL_RECOVERY_CEILING_MS = 42;
 const EXTERNAL_FRAME_CAP_MIN_MS = 28;
 const EXTERNAL_FRAME_CAP_MAX_MS = 48;
@@ -163,7 +192,14 @@ export class RenderBudgetGovernor {
   private stallHoldSeconds = 0;
   private stableSeconds = 0;
   private cooldownSeconds = 0;
-  private levels: RenderBudgetLevels = { grass: 1, foliage: 1, vfx: 1, lighting: 1, resolution: 1 };
+  private levels: RenderBudgetLevels = {
+    grass: 1,
+    foliage: 1,
+    vfx: 1,
+    lighting: 1,
+    shadow: 1,
+    resolution: 1,
+  };
 
   constructor(options: RenderBudgetGovernorOptions) {
     this.tier = options.tier;
@@ -179,13 +215,14 @@ export class RenderBudgetGovernor {
     const scale = Math.min(Math.max(renderScale, minRenderScale), maxRenderScale);
     this.levels = this.enabled
       ? {
-        grass: this.bands.grass.baseline,
-        foliage: this.bands.foliage.baseline,
-        vfx: this.bands.vfx.baseline,
-        lighting: this.bands.lighting.baseline,
-        resolution: round2(scale),
-      }
-      : { grass: 1, foliage: 1, vfx: 1, lighting: 1, resolution: round2(scale) };
+          grass: this.bands.grass.baseline,
+          foliage: this.bands.foliage.baseline,
+          vfx: this.bands.vfx.baseline,
+          lighting: this.bands.lighting.baseline,
+          shadow: 1,
+          resolution: round2(scale),
+        }
+      : { grass: 1, foliage: 1, vfx: 1, lighting: 1, shadow: 1, resolution: round2(scale) };
     this.frameMsEma = 16.7;
     this.submitMsEma = 0;
     this.externalFrameCap = false;
@@ -230,7 +267,10 @@ export class RenderBudgetGovernor {
     const frameCost = Math.max(frameMs, totalMs);
     this.frameMsEma += (frameCost - this.frameMsEma) * 0.08;
     this.submitMsEma += (submitMs - this.submitMsEma) * 0.12;
-    this.stallPressure = Math.max(this.stallPressure * Math.exp(-sample.dt / 12), positiveRatio(rawSubmitMs, SUBMIT_STALL_MS));
+    this.stallPressure = Math.max(
+      this.stallPressure * Math.exp(-sample.dt / 12),
+      positiveRatio(rawSubmitMs, SUBMIT_STALL_MS),
+    );
 
     if (!this.enabled) {
       this.mode = 'disabled';
@@ -242,7 +282,10 @@ export class RenderBudgetGovernor {
 
     const minRenderScale = Math.min(sample.maxRenderScale, Math.max(0.5, sample.minRenderScale));
     const maxRenderScale = Math.max(minRenderScale, Math.min(1, sample.maxRenderScale));
-    this.levels.resolution = Math.min(maxRenderScale, Math.max(minRenderScale, this.levels.resolution));
+    this.levels.resolution = Math.min(
+      maxRenderScale,
+      Math.max(minRenderScale, this.levels.resolution),
+    );
 
     if (this.cooldownSeconds > 0) {
       this.cooldownSeconds = Math.max(0, this.cooldownSeconds - sample.dt);
@@ -265,19 +308,27 @@ export class RenderBudgetGovernor {
     );
     const grassPressure = positiveRatio(sample.grassVisibleTufts, this.caps.targetGrassTufts);
     const cadenceMs = Math.max(frameMs, this.frameMsEma);
-    const renderWorkHasHeadroom = totalMs <= this.budget.recoverFrameMs
-      && submitMs <= Math.max(8, this.budget.recoverFrameMs * 0.7)
-      && this.submitMsEma <= Math.max(8, this.budget.dropFrameMs * 0.58)
-      && rawSubmitMs <= SUBMIT_STALL_RECOVERY_CEILING_MS
-      && this.stallPressure < 0.5
-      && drawPressure < 1
-      && grassPressure < 1;
-    this.externalFrameCap = rawFramePressure >= 1
-      && cadenceMs >= EXTERNAL_FRAME_CAP_MIN_MS
-      && cadenceMs <= EXTERNAL_FRAME_CAP_MAX_MS
-      && renderWorkHasHeadroom;
+    const renderWorkHasHeadroom =
+      totalMs <= this.budget.recoverFrameMs &&
+      submitMs <= Math.max(8, this.budget.recoverFrameMs * 0.7) &&
+      this.submitMsEma <= Math.max(8, this.budget.dropFrameMs * 0.58) &&
+      rawSubmitMs <= SUBMIT_STALL_RECOVERY_CEILING_MS &&
+      this.stallPressure < 0.5 &&
+      drawPressure < 1 &&
+      grassPressure < 1;
+    this.externalFrameCap =
+      rawFramePressure >= 1 &&
+      cadenceMs >= EXTERNAL_FRAME_CAP_MIN_MS &&
+      cadenceMs <= EXTERNAL_FRAME_CAP_MAX_MS &&
+      renderWorkHasHeadroom;
     const framePressure = this.externalFrameCap ? 0 : rawFramePressure;
-    this.pressure = Math.max(framePressure, submitPressure, drawPressure, grassPressure, this.stallPressure);
+    this.pressure = Math.max(
+      framePressure,
+      submitPressure,
+      drawPressure,
+      grassPressure,
+      this.stallPressure,
+    );
 
     const submitStall = rawSubmitMs >= SUBMIT_STALL_MS;
     if (submitStall) {
@@ -293,17 +344,19 @@ export class RenderBudgetGovernor {
       this.recentSubmitStalls = Math.max(0, this.recentSubmitStalls - sample.dt / 12);
     }
 
-    const urgent = submitStall
-      || (!this.externalFrameCap && frameMs >= this.budget.urgentFrameMs)
-      || (!this.externalFrameCap && totalMs >= this.budget.urgentFrameMs)
-      || submitMs >= Math.max(12, this.budget.urgentFrameMs * 0.58)
-      || sample.calls >= this.caps.urgentCalls
-      || sample.triangles >= this.caps.urgentTriangles
-      || sample.grassVisibleTufts >= this.caps.urgentGrassTufts;
-    const overBudget = this.pressure >= 1
-      || (!this.externalFrameCap && this.frameMsEma >= this.budget.dropFrameMs)
-      || (!this.externalFrameCap && totalMs >= this.budget.dropFrameMs)
-      || submitMs >= Math.max(8, this.budget.dropFrameMs * 0.58);
+    const urgent =
+      submitStall ||
+      (!this.externalFrameCap && frameMs >= this.budget.urgentFrameMs) ||
+      (!this.externalFrameCap && totalMs >= this.budget.urgentFrameMs) ||
+      submitMs >= Math.max(12, this.budget.urgentFrameMs * 0.58) ||
+      sample.calls >= this.caps.urgentCalls ||
+      sample.triangles >= this.caps.urgentTriangles ||
+      sample.grassVisibleTufts >= this.caps.urgentGrassTufts;
+    const overBudget =
+      this.pressure >= 1 ||
+      (!this.externalFrameCap && this.frameMsEma >= this.budget.dropFrameMs) ||
+      (!this.externalFrameCap && totalMs >= this.budget.dropFrameMs) ||
+      submitMs >= Math.max(8, this.budget.dropFrameMs * 0.58);
 
     if ((submitStall || overBudget) && (submitStall || this.cooldownSeconds <= 0)) {
       const changed = this.degrade(urgent, minRenderScale, {
@@ -318,15 +371,20 @@ export class RenderBudgetGovernor {
         this.reason = submitStall
           ? 'submit-stall'
           : sample.grassVisibleTufts >= this.caps.targetGrassTufts
-          ? 'grass'
-          : submitPressure >= framePressure && submitPressure >= drawPressure
-            ? 'submit'
-            : drawPressure >= framePressure
-              ? 'draw'
-              : 'frame';
+            ? 'grass'
+            : submitPressure >= framePressure && submitPressure >= drawPressure
+              ? 'submit'
+              : drawPressure >= framePressure
+                ? 'draw'
+                : 'frame';
         this.cooldownSeconds = submitStall
-          ? Math.max(this.cooldownSeconds, this.budget.cooldownSeconds * (rawSubmitMs >= SUBMIT_STALL_URGENT_MS ? 4 : 2.5))
-          : urgent ? this.budget.cooldownSeconds * 0.55 : this.budget.cooldownSeconds;
+          ? Math.max(
+              this.cooldownSeconds,
+              this.budget.cooldownSeconds * (rawSubmitMs >= SUBMIT_STALL_URGENT_MS ? 4 : 2.5),
+            )
+          : urgent
+            ? this.budget.cooldownSeconds * 0.55
+            : this.budget.cooldownSeconds;
         return this.state();
       }
     }
@@ -338,14 +396,15 @@ export class RenderBudgetGovernor {
       return this.state();
     }
 
-    const canRecover = (this.externalFrameCap || this.frameMsEma <= this.budget.recoverFrameMs)
-      && totalMs <= this.budget.recoverFrameMs
-      && submitMs <= Math.max(8, this.budget.recoverFrameMs * 0.7)
-      && rawSubmitMs <= SUBMIT_STALL_RECOVERY_CEILING_MS
-      && this.stallPressure < 0.5
-      && sample.calls <= this.caps.targetCalls * 0.9
-      && sample.triangles <= this.caps.targetTriangles * 0.9
-      && sample.grassVisibleTufts <= this.caps.targetGrassTufts * 0.9;
+    const canRecover =
+      (this.externalFrameCap || this.frameMsEma <= this.budget.recoverFrameMs) &&
+      totalMs <= this.budget.recoverFrameMs &&
+      submitMs <= Math.max(8, this.budget.recoverFrameMs * 0.7) &&
+      rawSubmitMs <= SUBMIT_STALL_RECOVERY_CEILING_MS &&
+      this.stallPressure < 0.5 &&
+      sample.calls <= this.caps.targetCalls * 0.9 &&
+      sample.triangles <= this.caps.targetTriangles * 0.9 &&
+      sample.grassVisibleTufts <= this.caps.targetGrassTufts * 0.9;
 
     if (canRecover) {
       this.stableSeconds += sample.dt;
@@ -389,43 +448,76 @@ export class RenderBudgetGovernor {
 
     const drawDominant = pressure.draw >= pressure.frame && pressure.draw >= pressure.submit;
     const foliageStep = urgent ? 0.14 : 0.08;
-    if ((urgent || drawDominant || pressure.draw >= 1.08)
-      && this.reduceLevel('foliage', this.caps.minFoliageLevel, foliageStep)) {
+    if (
+      (urgent || drawDominant || pressure.draw >= 1.08) &&
+      this.reduceLevel('foliage', this.caps.minFoliageLevel, foliageStep)
+    ) {
       changed = true;
     }
 
     const grassStep = urgent ? 0.14 : 0.08;
-    if ((urgent || pressure.grass >= 1 || (drawDominant && this.levels.foliage <= this.caps.minFoliageLevel + 0.001))
-      && this.reduceLevel('grass', this.caps.minGrassLevel, grassStep)) {
+    if (
+      (urgent ||
+        pressure.grass >= 1 ||
+        (drawDominant && this.levels.foliage <= this.caps.minFoliageLevel + 0.001)) &&
+      this.reduceLevel('grass', this.caps.minGrassLevel, grassStep)
+    ) {
       changed = true;
     }
 
     const lightingStep = urgent ? 0.12 : 0.07;
-    const environmentFloored = this.levels.foliage <= this.caps.minFoliageLevel + 0.001
-      && this.levels.grass <= this.caps.minGrassLevel + 0.001;
-    if ((urgent || pressure.submit >= 1 || environmentFloored)
-      && this.reduceLevel('lighting', this.caps.minLightingLevel, lightingStep)) {
+    const environmentFloored =
+      this.levels.foliage <= this.caps.minFoliageLevel + 0.001 &&
+      this.levels.grass <= this.caps.minGrassLevel + 0.001;
+    if (
+      (urgent || pressure.submit >= 1 || environmentFloored) &&
+      this.reduceLevel('lighting', this.caps.minLightingLevel, lightingStep)
+    ) {
       changed = true;
     }
 
     const vfxStep = urgent ? 0.08 : 0.05;
     const lightingDone = this.levels.lighting <= this.caps.minLightingLevel + 0.001;
     const severeFramePressure = pressure.frame >= 1.25 || pressure.submit >= 1.25;
-    if ((severeFramePressure || (!urgent && environmentFloored && lightingDone && (pressure.frame >= 1 || pressure.submit >= 1)))
-      && this.reduceLevel('vfx', this.caps.minVfxLevel, vfxStep)) {
+    if (
+      (severeFramePressure ||
+        (!urgent &&
+          environmentFloored &&
+          lightingDone &&
+          (pressure.frame >= 1 || pressure.submit >= 1))) &&
+      this.reduceLevel('vfx', this.caps.minVfxLevel, vfxStep)
+    ) {
+      changed = true;
+    }
+
+    // Sun shadow pass: the single biggest fixed GPU cost per frame (the depth pass
+    // re-renders every shadow caster in the 190u ortho box each frame). It is a
+    // binary knob (0 = pass skipped via per-light autoUpdate freeze in three r165,
+    // zero recompile/allocation) that only gives in after the cheap scalers are
+    // floored or under severe frame/submit pressure.
+    const vfxDone = this.levels.vfx <= this.caps.minVfxLevel + 0.001;
+    if (
+      (severeFramePressure || (environmentFloored && lightingDone && vfxDone)) &&
+      this.reduceLevel('shadow', this.caps.minShadowLevel, 1)
+    ) {
       changed = true;
     }
 
     const resolutionStep = urgent ? this.budget.urgentDropStep : this.budget.dropStep;
-    const vfxDone = this.levels.vfx <= this.caps.minVfxLevel + 0.001;
-    if ((severeFramePressure || (environmentFloored && lightingDone && vfxDone))
-      && this.reduceLevel('resolution', minRenderScale, resolutionStep)) {
+    const shadowDone = this.levels.shadow <= this.caps.minShadowLevel + 0.001;
+    if (
+      (severeFramePressure || (environmentFloored && lightingDone && vfxDone && shadowDone)) &&
+      this.reduceLevel('resolution', minRenderScale, resolutionStep)
+    ) {
       changed = true;
     }
     return changed;
   }
 
   private recover(maxRenderScale: number): boolean {
+    // Shadows are a binary knob, so they come back first in a single step: the
+    // cheapest way to hand the biggest visual win back to the player.
+    if (this.raiseLevel('shadow', 1, 1)) return true;
     if (this.raiseLevel('grass', this.bands.grass.baseline, 0.08)) return true;
     if (this.raiseLevel('lighting', this.bands.lighting.baseline, 0.08)) return true;
     if (this.raiseLevel('vfx', this.bands.vfx.baseline, 0.08)) return true;

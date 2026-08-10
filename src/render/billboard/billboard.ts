@@ -1,9 +1,9 @@
 // Billboard sprite class for 2D character rendering.
 // Creates a fixed-orientation plane with directional sprite views.
 import * as THREE from 'three';
-import type { SpriteSheetMeta, AnimationType, Direction, BillboardAnimState } from './types';
-import { createBillboardAnimState, getAnimFPS } from './types';
-import { createBillboardMaterial, updateMaterialFrame, loadSpriteSheetTexture } from './loader';
+import { createBillboardGeometry, getBillboardMaterial, updateBillboardFrame } from './loader';
+import type { AnimationType, BillboardAnimState, Direction, SpriteSheetMeta } from './types';
+import { createBillboardAnimState, getAnimFPS, getAnimRow } from './types';
 
 export interface BillboardSpriteOptions {
   /** World-space width. If omitted, derived from frame aspect ratio. */
@@ -12,41 +12,41 @@ export interface BillboardSpriteOptions {
   height?: number;
 }
 
-// Shared geometry for all billboard planes (scaled per-entity via mesh.scale)
-const sharedPlaneGeometry = new THREE.PlaneGeometry(1, 1);
-
 /** Billboard sprite that renders a 2D character with directional views. */
 export class BillboardSprite {
   readonly mesh: THREE.Mesh;
-  private material: THREE.MeshBasicMaterial;
+  // Material is SHARED per sprite sheet (loader's sheetMaterialCache): one
+  // material + one un-cloned texture per sheet, never per entity. The
+  // frame/direction strip is selected by baked geometry UVs instead of a
+  // per-material texture clone + offset/repeat (sprite-billboard audit,
+  // finding F5). Per-entity GPU cost is now just this geometry (~64 bytes).
+  private geometry: THREE.BufferGeometry;
   private meta: SpriteSheetMeta;
-  private texture: THREE.Texture;
   private state: BillboardAnimState;
   private animTime = 0;
   private currentFrame = 0;
 
-  constructor(
-    textureUrl: string,
-    meta: SpriteSheetMeta,
-    options: BillboardSpriteOptions = {},
-  ) {
+  constructor(textureUrl: string, meta: SpriteSheetMeta, options: BillboardSpriteOptions = {}) {
     this.meta = meta;
-    this.texture = loadSpriteSheetTexture(textureUrl);
     this.state = createBillboardAnimState('idle', 'SE');
-    this.material = createBillboardMaterial(
-      this.texture,
-      this.meta,
+
+    const material = getBillboardMaterial(textureUrl);
+    this.geometry = createBillboardGeometry(
+      meta,
       this.state.direction,
-      this.state.type,
+      getAnimRow(meta, this.state.type),
     );
 
     const height = options.height ?? 2.5;
-    // Derive width from frame aspect ratio so the sprite isn't squished
-    const frameAspect = meta.frameWidth / meta.frameHeight;
+    // Derive width from frame aspect ratio so the sprite isn't squished.
+    // Add a small padding factor (5%) to prevent the character's outline from
+    // being cut off at the billboard edges — the shipped sprite sheets pack
+    // art flush to the frame boundary with no gutter (verified against PNGs).
+    const FRAME_PADDING = 1.05;
+    const frameAspect = (meta.frameWidth / meta.frameHeight) * FRAME_PADDING;
     const width = options.width ?? height * frameAspect;
 
-    // Use shared geometry and scale per-entity
-    this.mesh = new THREE.Mesh(sharedPlaneGeometry, this.material);
+    this.mesh = new THREE.Mesh(this.geometry, material);
     this.mesh.scale.set(width, height, 1);
     this.mesh.renderOrder = 1;
     // Billboard plane faces the camera — always oriented toward the viewer.
@@ -60,7 +60,7 @@ export class BillboardSprite {
       this.state.type = type;
       this.state.frame = 0;
       this.animTime = 0;
-      this.updateMaterial();
+      this.updateFrame();
     }
   }
 
@@ -68,7 +68,7 @@ export class BillboardSprite {
   setDirection(direction: Direction): void {
     if (this.state.direction !== direction) {
       this.state.direction = direction;
-      this.updateMaterial();
+      this.updateFrame();
     }
   }
 
@@ -93,31 +93,37 @@ export class BillboardSprite {
 
     if (frameChanged) {
       this.animTime -= frameDuration;
-      // TODO: When multi-frame animations exist, use actual frame count:
-      // const totalFrames = this.meta.columns ?? 1;
-      // this.currentFrame = (this.currentFrame + 1) % totalFrames;
+      // Single-frame sprites: the frame index never advances, so there is no UV
+      // re-bake to do. Skipping updateMaterial() here removes a redundant
+      // getFrameUVs() + mirror scan every frameDuration (~250 ms at the idle 4
+      // FPS) per billboard — per-NPC/player work that multiplies with the crowd
+      // on screen (sprite-billboard audit, finding F3). When multi-frame
+      // animations land, advance and re-bake only when the frame differs:
+      //   const totalFrames = this.meta.columns ?? 1;
+      //   const next = (this.currentFrame + 1) % totalFrames;
+      //   if (next !== this.currentFrame) { this.currentFrame = next; this.updateFrame(); }
       this.currentFrame = 0; // Single-frame sprites
-      this.updateMaterial();
     }
 
     return frameChanged;
   }
 
-  /** Update the material with current state. */
-  private updateMaterial(): void {
-    updateMaterialFrame(
-      this.material,
+  /** Re-bake the geometry UVs for the current state (32-byte attribute copy). */
+  private updateFrame(): void {
+    updateBillboardFrame(
+      this.geometry,
       this.meta,
       this.state.direction,
-      this.state.type,
+      getAnimRow(this.meta, this.state.type),
       this.currentFrame,
     );
   }
 
   /** Dispose of the sprite's resources. */
   dispose(): void {
-    // Do NOT dispose sharedPlaneGeometry — it's shared across all billboards
-    this.material.map?.dispose(); // Free the cloned texture
-    this.material.dispose();
+    // Only the per-entity geometry is ours: the material and its texture are
+    // shared per sheet (loader caches) and must NOT be disposed here — doing
+    // so would break every other billboard on the same sheet.
+    this.geometry.dispose();
   }
 }
