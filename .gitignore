@@ -17,3 +17,7 @@ woc_community.png
 woc_logo_square.webp
 worldofclaude.png
 build-version-footer.png
+.pgdata/
+.pgdata
+.preview.log
+
