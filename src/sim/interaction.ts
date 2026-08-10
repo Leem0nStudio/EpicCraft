@@ -462,6 +462,14 @@ export function interact(ctx: SimContext, pid?: number): void {
           ctx.leaveDungeon(p.id);
           return;
         }
+        if (target.templateId === 'continent_gate') {
+          ctx.enterContinent(p.id);
+          return;
+        }
+        if (target.templateId === 'continent_return') {
+          ctx.leaveContinent(p.id);
+          return;
+        }
         if (target.templateId === 'mailbox') {
           ctx.emit({ type: 'mailbox', pid: p.id });
           return;
@@ -517,6 +525,14 @@ export function interact(ctx: SimContext, pid?: number): void {
     }
     if (obj.templateId === 'dungeon_exit') {
       ctx.leaveDungeon(p.id);
+      return;
+    }
+    if (obj.templateId === 'continent_gate') {
+      ctx.enterContinent(p.id);
+      return;
+    }
+    if (obj.templateId === 'continent_return') {
+      ctx.leaveContinent(p.id);
       return;
     }
     if (obj.templateId === 'mailbox') {

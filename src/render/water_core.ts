@@ -3,12 +3,17 @@
 // build time AND on every editor setLevel() rebuild, so both paths share one
 // definition. It reads the ACTIVE water surface (waterLevel(): the custom
 // map's override when one is loaded, else the built-in constant) against the
-// same deterministic terrainHeight the sim uses. Registered in
-// RENDER_PURE_CORES (tests/architecture.test.ts).
+// same deterministic terrain the sim uses. On the procedural-continent band the
+// terrain IS the continent heightfield (src/world/ContinentGrammar.ts), so the
+// shore follows the real island coastline and river-mouth lagoons instead of
+// the overworld terrain function evaluated at a far-off coordinate. Registered
+// in RENDER_PURE_CORES (tests/architecture.test.ts).
+import { isContinentPos } from '../sim/data';
+import { continentHeightAt } from '../world/ContinentGrammar';
 import { terrainHeight, waterLevel } from '../sim/world';
 
 // Depth of the ACTIVE water surface above the terrain at (x, z): positive in
 // open water, negative on dry land.
 export function shoreDepthAt(x: number, z: number, seed: number): number {
-  return waterLevel() - terrainHeight(x, z, seed);
+  return waterLevel() - (isContinentPos(x) ? continentHeightAt(x, z, seed) : terrainHeight(x, z, seed));
 }

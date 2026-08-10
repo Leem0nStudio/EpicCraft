@@ -390,6 +390,15 @@ import {
   updateDoorTriggers as updateDoorTriggersImpl,
   updateInstances as updateInstancesImpl,
 } from './instances/dungeons';
+import {
+  CONTINENT_GATE_ENTITY_ID,
+  CONTINENT_LANDING,
+  CONTINENT_OVERWORLD_GATE,
+  CONTINENT_RETURN_ENTITY_ID,
+  enterContinent as enterContinentImpl,
+  leaveContinent as leaveContinentImpl,
+  setContinentGatePos,
+} from './instances/continent';
 import { buyHeroicVendorItem as buyHeroicVendorItemImpl } from './instances/heroic_vendor';
 import * as questCommands from './quests/quest_commands';
 import {
@@ -538,6 +547,7 @@ import {
   terrainSteepnessAt,
   waterLevel,
   waterLevelAt,
+  bindContinentSeed,
 } from './world';
 
 // TRIVIAL_LEVEL_GAP moved to mob/targeting.ts (used only by isTrivialTo).
@@ -1625,6 +1635,9 @@ export class Sim {
       perfLap: cfg.perfLap,
     };
     this.rng = new Rng(cfg.seed);
+    // Bind the procedural-continent grammar seed once per boot (the swim gate
+    // and water-level checks read it; see src/sim/world.ts bindContinentSeed).
+    bindContinentSeed(cfg.seed);
     // Live server opt-in (worldBossAtBoot): the first world-boss rise is due
     // immediately instead of one interval out, so a freshly (re)started realm
     // has its boss up. Draws no rng here; the spawn itself fires on the first
@@ -1815,6 +1828,42 @@ export class Sim {
           enteredBy: new Set(),
         });
       }
+    }
+
+    // Procedural-continent gates (Continente por Gramática v1): a shimmering
+    // portal pair linking Eastbrook's east edge to the far-continent landing.
+    // Pure teleports (no rng drawn); reserved ids keep the parity-golden id
+    // sequence intact, mirroring the Bram/FURY reserved-id pattern. The
+    // overworld gate position is stamped for leaveContinent's return trip.
+    {
+      const safe = this.findSafePos(
+        CONTINENT_OVERWORLD_GATE.x,
+        CONTINENT_OVERWORLD_GATE.z,
+        waterLevel() + 0.6,
+      );
+      const gate = createGroundObject(
+        CONTINENT_GATE_ENTITY_ID,
+        '',
+        'Seaside Gate',
+        this.groundPos(safe.x, safe.z),
+      );
+      gate.templateId = 'continent_gate';
+      gate.objectItemId = null;
+      gate.lootable = true; // interactable
+      this.addEntity(gate);
+      setContinentGatePos({ x: safe.x, z: safe.z });
+    }
+    {
+      const ret = createGroundObject(
+        CONTINENT_RETURN_ENTITY_ID,
+        '',
+        'Eastbrook Gate',
+        this.groundPos(CONTINENT_LANDING.x, CONTINENT_LANDING.z),
+      );
+      ret.templateId = 'continent_return';
+      ret.objectItemId = null;
+      ret.lootable = true; // interactable
+      this.addEntity(ret);
     }
 
     // Spirit Healers (the angels): one hovering at every overworld graveyard.
@@ -3538,6 +3587,12 @@ export class Sim {
       set dungeonDoorIds(v) {
         sim.dungeonDoorIds = v;
       },
+      get continentGateIds() {
+        return sim.continentGateIds;
+      },
+      set continentGateIds(v) {
+        sim.continentGateIds = v;
+      },
       get instances() {
         return sim.instances;
       },
@@ -3838,6 +3893,8 @@ export class Sim {
       instanceClaimIdAt: sim.instanceClaimIdAt.bind(sim),
       enterDungeon: sim.enterDungeon.bind(sim),
       leaveDungeon: sim.leaveDungeon.bind(sim),
+      enterContinent: sim.enterContinent.bind(sim),
+      leaveContinent: sim.leaveContinent.bind(sim),
       resetDungeonInstances: sim.resetDungeonInstances.bind(sim),
       inheritDungeonResetLocks: sim.inheritDungeonResetLocks.bind(sim),
       dungeonDifficulty: sim.dungeonDifficulty.bind(sim),
@@ -8409,6 +8466,9 @@ export class Sim {
   // Lazily built on first updateDoorTriggers, then appended on dungeon_door spawn
   // (entity_roster.addEntityToRoster). Stays Sim-owned; reached via ctx.dungeonDoorIds.
   private dungeonDoorIds: number[] | null = null;
+  // Continent-gate registry, appended on continent_gate/continent_return spawn
+  // (entity_roster.addEntityToRoster). Stays Sim-owned; reached via ctx.continentGateIds.
+  private continentGateIds: number[] | null = null;
 
   private updateDoorTriggers(p: Entity): void {
     updateDoorTriggersImpl(this.ctx, p);
@@ -8420,6 +8480,14 @@ export class Sim {
 
   leaveDungeon(pid?: number): boolean {
     return leaveDungeonImpl(this.ctx, pid);
+  }
+
+  enterContinent(pid?: number): boolean {
+    return enterContinentImpl(this.ctx, pid);
+  }
+
+  leaveContinent(pid?: number): boolean {
+    return leaveContinentImpl(this.ctx, pid);
   }
 
   resetDungeonInstances(pid?: number): void {

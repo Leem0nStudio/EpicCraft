@@ -3,7 +3,10 @@ import type { GLTF } from 'three/addons/loaders/GLTFLoader.js';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import {
   CAMPS,
+  CONTINENT_X_MAX,
+  CONTINENT_X_MIN,
   DUNGEON_X_THRESHOLD,
+  isContinentPos,
   WORLD_MAX_X,
   WORLD_MAX_Z,
   WORLD_MIN_Z,
@@ -20,6 +23,20 @@ import {
   waterLevelAt,
   zoneBiomeAt,
 } from '../sim/world';
+import {
+  continentHeightAt,
+  continentSurface,
+  continentTooSteep,
+  CONTINENT_CX,
+  CONTINENT_RADIUS,
+  CONTINENT_SEA_LEVEL,
+  type ContinentBiome,
+} from '../world/ContinentGrammar';
+import {
+  generateContinentProps,
+  type ContinentProp,
+  type ContinentPropKind,
+} from '../world/RegionPopulator';
 import { loadGltf } from './assets/loader';
 import { registerPreload } from './assets/preload';
 import { configureMaskedDoubleSidedVegetationMaterial, GFX, sharedUniforms } from './gfx';
@@ -172,6 +189,263 @@ const LEAF_TINT_SOFTEN = 0.6;
 const BARK_TINT_SOFTEN = 0.85;
 const ROCK_TINT_SOFTEN = 0.45;
 const DRESS_TINT_SOFTEN = 0.65;
+
+// ---------------------------------------------------------------------------
+// Continent-band palettes (Capa 1). The island is a fresh landmass with its
+// own biomes (ContinentBiome), so it needs its own tints; water biomes never
+// host props (RegionPopulator filters them) so their rows are fallbacks only.
+// ---------------------------------------------------------------------------
+const CONT_PINE_TINT: Record<ContinentBiome, number> = {
+  Ocean: 0x6f8a5e,
+  Sea: 0x6f8a5e,
+  Lake: 0x6f8a5e,
+  River: 0x6f8a5e,
+  Mountain: 0x5f7660,
+  Hill: 0x6f8a5a,
+  Plains: 0x8a9b5e,
+  Forest: 0x5f7d4e,
+  Desert: 0xa08d5e,
+};
+const CONT_OAK_TINT: Record<ContinentBiome, number> = {
+  Ocean: 0x7d906a,
+  Sea: 0x7d906a,
+  Lake: 0x7d906a,
+  River: 0x7d906a,
+  Mountain: 0x6d8468,
+  Hill: 0x7d906a,
+  Plains: 0x9aa56c,
+  Forest: 0x6d7f57,
+  Desert: 0xaa9a6a,
+};
+const CONT_BARK_TINT: Record<ContinentBiome, number> = {
+  Ocean: 0xffffff,
+  Sea: 0xffffff,
+  Lake: 0xffffff,
+  River: 0xffffff,
+  Mountain: 0xd9dde4,
+  Hill: 0xe4e0d2,
+  Plains: 0xece4d4,
+  Forest: 0xd8d0c0,
+  Desert: 0xead8ae,
+};
+const CONT_ROCK_TINT: Record<ContinentBiome, number> = {
+  Ocean: 0x8d8d85,
+  Sea: 0x8d8d85,
+  Lake: 0x8d8d85,
+  River: 0x8d8d85,
+  Mountain: 0x878e99,
+  Hill: 0x8a8a82,
+  Plains: 0x9a9488,
+  Forest: 0x8a8a80,
+  Desert: 0xb08d6a,
+};
+const CONT_DRESS_TINT: Record<ContinentBiome, number> = {
+  Ocean: 0xaebf8e,
+  Sea: 0xaebf8e,
+  Lake: 0xaebf8e,
+  River: 0xaebf8e,
+  Mountain: 0x93a78f,
+  Hill: 0x9aa888,
+  Plains: 0xb9b488,
+  Forest: 0x93a07a,
+  Desert: 0xbc9e72,
+};
+const CONT_GRASS_TINT: Record<ContinentBiome, number> = {
+  Ocean: 0xc2cec8,
+  Sea: 0xc2cec8,
+  Lake: 0xc2cec8,
+  River: 0xc2cec8,
+  Mountain: 0x9aa89c,
+  Hill: 0xaab49a,
+  Plains: 0xc4c494,
+  Forest: 0x9db08c,
+  Desert: 0xd0bd8e,
+};
+
+// ---------------------------------------------------------------------------
+// Continent foliage (Capa 1 — la región poblada). A second, far-smaller
+// InstancedMesh forest over the island band, built from the same CC0 foliage
+// models as the overworld and placed by the deterministic RegionPopulator
+// (poisson-disk spacing, biome mix). The renderer gates the whole group's
+// visibility on the camera nearing the band (like the continent terrain), so
+// update() only runs there. Walk-through by design (no colliders, like the
+// overworld props).
+// ---------------------------------------------------------------------------
+
+export interface ContinentFoliageView {
+  group: THREE.Group;
+  /** Fog-cull the instanced buckets against the current camera + fog wall. */
+  update(camX: number, camZ: number, fogFar: number): void;
+}
+
+// one static grass tuft InstancedMesh per z-band (cheap fog cull, no per-frame
+// rebuild: the island is fixed, so its grass is fixed too)
+function buildContinentGrass(group: THREE.Group, seed: number, register: (m: THREE.InstancedMesh, x: number, z: number, radius: number) => void): void {
+  const lush = !GFX.leanFoliage;
+  const quad = new THREE.PlaneGeometry(lush ? 1.45 : 1.1, lush ? 0.9 : 0.7);
+  quad.translate(0, lush ? 0.42 : 0.35, 0);
+  const quad2 = quad.clone().rotateY(Math.PI / 2);
+  const geo = mergeGeometries([quad, quad2]);
+  const tuftTex = grassTuftTexture(lush ? 30 : 18);
+  const mat = configureMaskedDoubleSidedVegetationMaterial(
+    lush
+      ? new THREE.MeshStandardMaterial({ map: tuftTex, alphaTest: 0.3, roughness: 0.9 })
+      : new THREE.MeshLambertMaterial({ map: tuftTex, alphaTest: 0.35 }),
+  );
+  const step = GFX.grassStep;
+  const half = CONTINENT_RADIUS + 8;
+  const bandH = Math.ceil((half * 2) / BUCKET_DEPTH);
+  const perBand = new Map<number, { x: number; z: number; h: number; tint: number }[]>();
+  for (let i = Math.floor(-half / step) - 1; i <= Math.ceil(half / step) + 1; i++) {
+    for (let j = Math.floor(-half / step) - 1; j <= Math.ceil(half / step) + 1; j++) {
+      const r = hashAt(i, j, 0);
+      if (r > (lush ? GRASS_DENSITY_HIGH : GRASS_DENSITY_LOW)) continue;
+      const x = i * step + (hashAt(i, j, 1) - 0.5) * step * 1.4;
+      const z = j * step + (hashAt(i, j, 2) - 0.5) * step * 1.4;
+      if (Math.hypot(x - CONTINENT_CX, z) > CONTINENT_RADIUS * 1.05) continue;
+      const ch = continentHeightAt(x, z, seed);
+      if (ch < CONTINENT_SEA_LEVEL + 1.2) continue;
+      if (continentTooSteep(x, z, seed)) continue;
+      const band = Math.floor((z + half) / BUCKET_DEPTH);
+      const scale = (lush ? 0.55 : 0.45) + r * (lush ? 1.1 : 1);
+      const spot = {
+        x,
+        z,
+        h: ch,
+        scale,
+        tint: CONT_GRASS_TINT[continentSurface(x, z, seed).biome],
+      };
+      const list = perBand.get(band);
+      if (list) list.push(spot);
+      else perBand.set(band, [spot]);
+    }
+  }
+  for (const [band, spots] of perBand) {
+    const im = new THREE.InstancedMesh(geo, mat, spots.length);
+    spots.forEach((s, n) => {
+      q.setFromAxisAngle(up, hashAt(Math.round(s.x), Math.round(s.z), 12) * 12.4);
+      m.compose(v.set(s.x, s.h, s.z), q, sv.set(s.scale, s.scale, s.scale));
+      im.setMatrixAt(n, m);
+      c.setHex(s.tint);
+      im.setColorAt(n, c);
+    });
+    im.instanceMatrix.needsUpdate = true;
+    if (im.instanceColor) im.instanceColor.needsUpdate = true;
+    im.receiveShadow = true;
+    group.add(im);
+    register(im, CONTINENT_CX, band * BUCKET_DEPTH - half + BUCKET_DEPTH / 2, BUCKET_DEPTH * 0.75);
+  }
+}
+
+export function buildContinentFoliage(seed: number): ContinentFoliageView {
+  const group = new THREE.Group();
+  group.name = 'foliage-continent';
+  const cullables: { m: THREE.InstancedMesh; x: number; z: number; radius: number }[] = [];
+  const register = (m: THREE.InstancedMesh, x: number, z: number, radius: number): void => {
+    cullables.push({ m, x, z, radius });
+  };
+
+  // Per-kind model URL lists, mirroring the overworld species sets.
+  const kindUrls: Record<ContinentPropKind, string[]> = {
+    pine: MODEL_URLS.pine,
+    oak: MODEL_URLS.oak,
+    rock: MODEL_URLS.rock,
+    bush: [MODEL_URLS.bush[0]],
+    bushFlowers: [MODEL_URLS.bushFlowers[0]],
+    fern: [MODEL_URLS.fern[0]],
+    mushroom: [MODEL_URLS.mushroom[0]],
+  };
+  const kindTint: Record<ContinentPropKind, Record<ContinentBiome, number>> = {
+    pine: CONT_PINE_TINT,
+    oak: CONT_OAK_TINT,
+    rock: CONT_ROCK_TINT,
+    bush: CONT_DRESS_TINT,
+    bushFlowers: CONT_DRESS_TINT,
+    fern: CONT_DRESS_TINT,
+    mushroom: CONT_DRESS_TINT,
+  };
+  const tintSoften: Record<ContinentPropKind, number> = {
+    pine: LEAF_TINT_SOFTEN,
+    oak: LEAF_TINT_SOFTEN,
+    rock: ROCK_TINT_SOFTEN,
+    bush: DRESS_TINT_SOFTEN,
+    bushFlowers: DRESS_TINT_SOFTEN,
+    fern: DRESS_TINT_SOFTEN,
+    mushroom: 0,
+  };
+
+  const props = generateContinentProps(seed);
+  const buckets = new Map<number, ContinentProp[]>();
+  for (const p of props) {
+    const band = Math.floor((p.z + CONTINENT_RADIUS + 8) / BUCKET_DEPTH);
+    const list = buckets.get(band);
+    if (list) list.push(p);
+    else buckets.set(band, [p]);
+  }
+
+  for (const [band, items] of buckets) {
+    const byKind = new Map<ContinentPropKind, ContinentProp[]>();
+    for (const p of items) {
+      const list = byKind.get(p.kind);
+      if (list) list.push(p);
+      else byKind.set(p.kind, [p]);
+    }
+    let minZ = Infinity,
+      maxZ = -Infinity;
+    for (const p of items) {
+      minZ = Math.min(minZ, p.z);
+      maxZ = Math.max(maxZ, p.z);
+    }
+    const bz = (minZ + maxZ) / 2;
+    const bRadius = (maxZ - minZ) / 2 + 16;
+    for (const [kind, list] of byKind) {
+      const urls = kindUrls[kind];
+      // one InstancedMesh per (kind, model variant, part): the island is small,
+      // so this stays a handful of draws per band even with full variety.
+      for (let v = 0; v < urls.length; v++) {
+        const sub = list.filter((p) => p.variant === v);
+        if (sub.length === 0) continue;
+        const parts = extractParts(urls[v]);
+        for (const part of parts) {
+          const im = new THREE.InstancedMesh(part.geometry, part.material, sub.length);
+          sub.forEach((p, n) => {
+            const y = continentHeightAt(p.x, p.z, seed);
+            const s = p.scale;
+            q.setFromAxisAngle(up, p.variant * 2.1 + hashAt(p.x, p.z, 11) * Math.PI * 2);
+            m.compose(v.set(p.x, y - 0.05 * s, p.z), q, sv.set(s, s, s));
+            im.setMatrixAt(n, m);
+            if (kind === 'mushroom') {
+              im.setColorAt(n, c.setScalar(0.85 + hashAt(p.x, p.z, 47) * 0.3));
+            } else {
+              im.setColorAt(n, softTint(p.x, p.z, kindTint[kind][p.biome], c, tintSoften[kind]));
+            }
+          });
+          im.instanceMatrix.needsUpdate = true;
+          if (im.instanceColor) im.instanceColor.needsUpdate = true;
+          // canopy owns the tree shadow (same policy as the overworld); rocks /
+          // dressing cast nothing
+          im.castShadow = part.isLeaf;
+          im.receiveShadow = true;
+          group.add(im);
+          register(im, CONTINENT_CX, bz, bRadius);
+        }
+      }
+    }
+  }
+
+  buildContinentGrass(group, seed, register);
+
+  return {
+    group,
+    update(camX: number, camZ: number, fogFar: number): void {
+      for (const c of cullables) {
+        const dx = Math.max(Math.abs(camX - c.x) - c.radius, 0);
+        const dz = Math.max(Math.abs(camZ - c.z) - c.radius, 0);
+        c.m.visible = Math.hypot(dx, dz) < fogFar;
+      }
+    },
+  };
+}
 
 // rocks only pick up the snow-dust colorway above the terrain snowline —
 // low-altitude peaks-biome foothills stay mossy/bare (white rocks on green

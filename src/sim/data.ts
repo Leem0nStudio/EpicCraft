@@ -562,6 +562,27 @@ export function yumiMazeOriginAt(z: number): { x: number; z: number; slot: numbe
   return { x: o.x, z: o.z, slot: best };
 }
 
+// ---------------------------------------------------------------------------
+// The far continent (Continente por Gramática v1) — the easternmost band, past
+// the Protect Yumi maze (YUMI_BAND_X_MAX = 12000). Unlike every other far band
+// (dungeons/arena/delves/yumi all sit on flat floor), this band carries REAL
+// procedural terrain: groundHeight routes it to src/world/ContinentGrammar.ts
+// (island falloff + fbm relief), so sim, camera, and renderer all share one
+// heightfield again. Reached through a portal gate near the starting town.
+// ---------------------------------------------------------------------------
+
+export const CONTINENT_X_MIN = 12000; // x at/after this = the procedural continent
+// 800 wide leaves a large island (radius ~260 in the grammar) plus open sea;
+// the Vale Cup practice pitches sit far past this at x = 30000, so the band
+// must NOT claim everything past 12000 (same two-sided cap lesson as yumi).
+export const CONTINENT_X_MAX = 12800;
+
+// True inside the continent band. Everything that must treat the band
+// specially (groundHeight, colliders, fog, portals) dispatches on this.
+export function isContinentPos(x: number): boolean {
+  return x >= CONTINENT_X_MIN && x < CONTINENT_X_MAX;
+}
+
 export const DELVES: Record<string, DelveDef> = {
   [COLLAPSED_RELIQUARY_DELVE.id]: COLLAPSED_RELIQUARY_DELVE,
   [DROWNED_LITANY_DELVE.id]: DROWNED_LITANY_DELVE,

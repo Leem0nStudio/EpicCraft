@@ -123,6 +123,12 @@ export function addEntityToRoster(ctx: SimContext, e: Entity): void {
   ctx.grid.insert(e);
   if (e.kind === 'player') ctx.playerGrid.insert(e);
   if (e.templateId === 'dungeon_door' && ctx.dungeonDoorIds) ctx.dungeonDoorIds.push(e.id);
+  if (
+    (e.templateId === 'continent_gate' || e.templateId === 'continent_return') &&
+    ctx.continentGateIds
+  ) {
+    ctx.continentGateIds.push(e.id);
+  }
 }
 
 export function dropEntityFromRoster(ctx: SimContext, id: number): void {

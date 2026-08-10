@@ -1,4 +1,17 @@
-import { DUNGEON_FLOOR_Y, DUNGEON_X_THRESHOLD, getActiveWorldContent, WORLD_MAX_X } from './data';
+import {
+  continentHeightAt,
+  continentWaterSpots,
+  CONTINENT_CX,
+  CONTINENT_CZ,
+  CONTINENT_RADIUS,
+  isContinentPos,
+} from '../world/ContinentGrammar';
+import {
+  DUNGEON_FLOOR_Y,
+  DUNGEON_X_THRESHOLD,
+  getActiveWorldContent,
+  WORLD_MAX_X,
+} from './data';
 import { dockLocalPoint, dockSectionAtLocal, dockSurfaceLine, dockSurfaceYAt } from './dock_layout';
 import { fbm2, hash2 } from './rng';
 import type { BiomeId, HeightStamp, WorldContent } from './types';
@@ -30,6 +43,18 @@ export function waterLevel(): number {
   return world().content.waterLevel ?? WATER_LEVEL;
 }
 
+// The procedural continent's grammar seed (src/world/ContinentGrammar.ts),
+// bound once per world boot by the Sim ctor (with cfg.seed) — the same
+// boot-time binding as the active world content. Defaults to the fixed world
+// seed (main.ts WORLD_SEED). The continent's river mouths/tarns derive from
+// this seed, and waterLevelAt/isInWaterBody (seed-free by contract, called all
+// over the movement hot paths) read the bound value so swim decisions and the
+// renderer always agree with the seeded island.
+let continentSeed = 20061;
+export function bindContinentSeed(seed: number): void {
+  continentSeed = seed;
+}
+
 // A declared lake's footprint reaches this multiple past its authored radius
 // (the same soft-edge basin blend baseHeight uses below), so the render plane,
 // the walkable-depth floor, and the terrain basin itself all agree on where a
@@ -42,6 +67,18 @@ export const LAKE_BLEND_RADIUS_MULT = 1.6;
 // sunken feature (crater, sinkhole, tunnel) stays dry and walkable as long as
 // it isn't inside one of these footprints.
 export function isInWaterBody(x: number, z: number): boolean {
+  if (isInContinentOcean(x, z)) return true;
+  // Continent river mouths + source tarns are declared water too: the carved
+  // beds dip below sea level and the renderer's ocean plane fills them, so the
+  // swim gate must match (a player wading into a lagoon reads as swimming,
+  // never as walking on the seabed).
+  if (isContinentPos(x)) {
+    for (const spot of continentWaterSpots(continentSeed)) {
+      const dx = x - spot.x;
+      const dz = z - spot.z;
+      if (dx * dx + dz * dz < spot.radius * spot.radius) return true;
+    }
+  }
   for (const zone of world().content.zones) {
     for (const lake of zone.lakes) {
       const dSq = (x - lake.x) ** 2 + (z - lake.z) ** 2;
@@ -67,6 +104,10 @@ export function waterLevelAt(x: number, z: number): number {
 // an entire zone's footprint.
 export function waterBodies(): { x: number; z: number; radius: number }[] {
   const out: { x: number; z: number; radius: number }[] = [];
+  // The continent ocean: one declared body around the island (the renderer's
+  // water planes + the swim-depth floor both key off this list). The island
+  // itself sits above sea level, so only the ring reads as water.
+  out.push({ x: CONTINENT_CX, z: CONTINENT_CZ, radius: CONTINENT_RADIUS * 1.4 });
   for (const zone of world().content.zones) {
     for (const lake of zone.lakes) {
       out.push({ x: lake.x, z: lake.z, radius: lake.radius * LAKE_BLEND_RADIUS_MULT });
@@ -454,8 +495,20 @@ function dockSurfaceHeight(x: number, z: number, seed: number): number {
   return surface;
 }
 
-// Ground height including instanced dungeon floors (flat, far off-world).
+// True in the continent's ocean ring: the sea beyond the island's coast. The
+// island interior is dry by construction (the grammar keeps it above sea
+// level); the ring past the coast is declared water so swimming + the rendered
+// ocean plane both work, exactly like an authored lake.
+export function isInContinentOcean(x: number, z: number): boolean {
+  if (!isContinentPos(x)) return false;
+  const d = Math.hypot(x - CONTINENT_CX, z - CONTINENT_CZ);
+  return d > CONTINENT_RADIUS * 1.05;
+}
+
+// Ground height including instanced dungeon floors (flat, far off-world) and
+// the procedural continent's real terrain (island + ocean floor, far off-world).
 export function groundHeight(x: number, z: number, seed: number): number {
+  if (isContinentPos(x)) return continentHeightAt(x, z, seed);
   if (x > DUNGEON_X_THRESHOLD) return DUNGEON_FLOOR_Y;
   // Raised walkable props live in groundHeight, NOT terrainHeight, so the
   // renderer's terrain baseline stays unchanged. Vale Cup adds tier lifts while
@@ -594,6 +647,10 @@ const STEEPNESS_CACHE_MAX = 400_000; // cells per seed; ~the whole overworld
 const STEEPNESS_CACHE_MAX_SEEDS = 4; // hosts run one seed; only test runs see more
 const STEEPNESS_CELL_SPAN = 16384; // cells per axis in the packed key
 export function terrainSteepnessAt(x: number, z: number, seed: number): number {
+  // The continent carries real mountains: its climb gates must be real too, so
+  // compute directly (no cache — the packed key space is sized for the
+  // overworld, and the band is small, so a handful of direct samples is cheap).
+  if (isContinentPos(x)) return terrainSteepness(x, z, seed);
   // Instanced interiors (dungeons/arena/delves) are flat floors; skip the cache
   // entirely so their far-off coordinates never enter (or overflow) the packed
   // key space, which is sized for the overworld.

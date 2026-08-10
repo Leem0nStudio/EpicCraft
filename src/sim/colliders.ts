@@ -9,10 +9,15 @@ import {
   INSTANCE_SLOT_COUNT,
   instanceOrigin,
   isArenaPos,
+  isContinentPos,
   isDelvePos,
   isYumiMazePos,
   yumiMazeOriginAt,
 } from './data';
+import {
+  generateContinentSettlements,
+  type Settlement,
+} from '../world/SettlementGenerator';
 import { type DelveModuleId, delveModuleColliders } from './delve_layout';
 import { isLitanyModuleId, litanyModuleLosColliders } from './delve_litany_layout';
 import {
@@ -429,6 +434,52 @@ function instanceLocal(x: number, z: number): { ox: number; oz: number; interior
   return { ox: o.x, oz: o.z, interior: dungeon?.interior ?? 'crypt' };
 }
 
+// ---------------------------------------------------------------------------
+// Continent settlement colliders (Capa 2): one OBB per building (circle for
+// wells), built from the SAME memoized list the renderer uses (what you see is
+// what you collide with). camGhost mirrors the overworld policy: players slide
+// along buildings while the chase cam passes through them.
+// ---------------------------------------------------------------------------
+
+const continentColliderCache = new Map<number, Collider[]>();
+
+function continentSettlementColliders(seed: number): Collider[] {
+  const cached = continentColliderCache.get(seed);
+  if (cached) return cached;
+  const { settlements } = generateContinentSettlements(seed);
+  const out: Collider[] = [];
+  const pushSettlement = (st: Settlement): void => {
+    for (const b of st.buildings) {
+      if (b.kind === 'well') {
+        out.push({
+          type: 'circle',
+          x: b.x,
+          z: b.z,
+          r: b.w / 2,
+          cameraTopY: topY(seed, b.x, b.z, 3.7),
+          camGhost: true,
+        });
+        continue;
+      }
+      const height = b.kind === 'chapel' ? 10.8 : b.kind === 'inn' ? 7.8 : 8.0;
+      out.push({
+        type: 'obb',
+        x: b.x,
+        z: b.z,
+        hw: b.w / 2,
+        hd: b.d / 2,
+        rot: b.rot,
+        cameraTopY: topY(seed, b.x, b.z, height),
+        camGhost: true,
+      });
+    }
+    for (const sat of st.satellites ?? []) pushSettlement(sat);
+  };
+  for (const st of settlements) pushSettlement(st);
+  continentColliderCache.set(seed, out);
+  return out;
+}
+
 // Resolve a movement destination against all static geometry. Movers slide
 // along obstacles. `r` is the body radius.
 export function resolvePosition(
@@ -457,6 +508,10 @@ export function resolvePosition(
     const local = resolveAgainst(ARENA_COLLIDERS, x - o.x, z - o.z, r, ignoreFences);
     return { x: local.x + o.x, z: local.z + o.z };
   }
+  // The continent's settlements (Capa 2) add kit colliders on top of the
+  // heightfield: houses/castles/inns/wells block and slide like overworld
+  // buildings; the open land between towns still resolves freely.
+  if (isContinentPos(x)) return resolveAgainst(continentSettlementColliders(seed), x, z, r, ignoreFences);
   if (x > DUNGEON_X_THRESHOLD) {
     const { ox, oz, interior } = instanceLocal(x, z);
     const colliders = INTERIOR_COLLIDERS[interior] ?? CRYPT_COLLIDERS;
@@ -733,6 +788,10 @@ export function cameraOcclusion(
       true,
     );
   }
+  if (isContinentPos(ax)) {
+    const colliders = continentSettlementColliders(seed);
+    return sweepColliders(colliders, ax, ay, az, bx, by, bz, pad, true);
+  }
   if (ax > DUNGEON_X_THRESHOLD) {
     const { ox, oz, interior } = instanceLocal(ax, az);
     const colliders = INTERIOR_COLLIDERS[interior] ?? CRYPT_COLLIDERS;
@@ -793,6 +852,7 @@ function sightBlockedAt(seed: number, x: number, z: number, r: number, sightY: n
     const o = arenaOriginAt(z);
     return overlapsAny(ARENA_COLLIDERS, x - o.x, z - o.z, false);
   }
+  if (isContinentPos(x)) return overlapsAny(continentSettlementColliders(seed), x, z, false);
   if (x > DUNGEON_X_THRESHOLD) {
     const { ox, oz, interior } = instanceLocal(x, z);
     return overlapsAny(INTERIOR_COLLIDERS[interior] ?? CRYPT_COLLIDERS, x - ox, z - oz, false);

@@ -206,6 +206,8 @@ function makeCtx() {
     instanceClaimIdAt: vi.fn(() => null),
     enterDungeon: vi.fn(),
     leaveDungeon: vi.fn(),
+    enterContinent: vi.fn(() => true),
+    leaveContinent: vi.fn(() => true),
     resetDungeonInstances: vi.fn(),
     inheritDungeonResetLocks: vi.fn(),
     dungeonDifficulty: vi.fn(() => 'normal' as const),

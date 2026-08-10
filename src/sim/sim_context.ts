@@ -111,6 +111,9 @@ export interface SimContextPrimitives {
   // dungeon-door registry (I1) appended to on dungeon_door spawn; null until built.
   // Read-write: I1's updateDoorTriggers lazily assigns the array on first build.
   dungeonDoorIds: number[] | null;
+  // Continent-gate registry, appended on continent_gate/continent_return spawn
+  // (entity_roster.addEntityToRoster); null until built. Mirrors dungeonDoorIds.
+  continentGateIds: number[] | null;
   // The dungeon-instance slot pool (I1), seeded in the Sim ctor. The dungeons module
   // reads/finds/iterates it and mutates slot fields in place; the array identity
   // stays Sim-owned (like delayedEvents/groundAoEs), so this is a live read-only view.
@@ -269,6 +272,11 @@ export interface SimContextCallbacks {
   instanceClaimIdAt(pos: Vec3): number | null;
   enterDungeon(dungeonId: string, pid?: number): boolean;
   leaveDungeon(pid?: number): boolean;
+  // Procedural-continent portals: plain teleports to/from the far continent
+  // band (src/sim/instances/continent.ts) — not instance claims. Exposed through
+  // the seam so interaction/updateDoorTriggers reach them like dungeon doors.
+  enterContinent(pid?: number): boolean;
+  leaveContinent(pid?: number): boolean;
   resetDungeonInstances(pid?: number): void;
   inheritDungeonResetLocks(pid: number): void;
   dungeonDifficulty(pid?: number): DungeonDifficulty;
@@ -912,6 +920,12 @@ export function createSimContext(host: SimContextHost): SimContext {
     set dungeonDoorIds(v) {
       host.dungeonDoorIds = v;
     },
+    get continentGateIds() {
+      return host.continentGateIds;
+    },
+    set continentGateIds(v) {
+      host.continentGateIds = v;
+    },
     get instances() {
       return host.instances;
     },
@@ -1056,6 +1070,8 @@ export function createSimContext(host: SimContextHost): SimContext {
     instanceClaimIdAt: host.instanceClaimIdAt,
     enterDungeon: host.enterDungeon,
     leaveDungeon: host.leaveDungeon,
+    enterContinent: host.enterContinent,
+    leaveContinent: host.leaveContinent,
     resetDungeonInstances: host.resetDungeonInstances,
     inheritDungeonResetLocks: host.inheritDungeonResetLocks,
     dungeonDifficulty: host.dungeonDifficulty,

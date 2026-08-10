@@ -10,6 +10,11 @@ import {
 } from '../sim/dock_layout';
 import { hash2 } from '../sim/rng';
 import { terrainHeight, waterLevel } from '../sim/world';
+import { continentHeightAt } from '../world/ContinentGrammar';
+import {
+  generateContinentSettlements,
+  type SettlementBuilding,
+} from '../world/SettlementGenerator';
 import { loadGltf } from './assets/loader';
 import { registerPreload } from './assets/preload';
 import { GFX, sharedUniforms, surfaceMat } from './gfx';
@@ -1807,4 +1812,103 @@ function mergeStaticMeshes(group: THREE.Group, keep: Set<THREE.Object3D>): THREE
     out.push(mesh);
   }
   return out;
+}
+
+// ---------------------------------------------------------------------------
+// Continent settlements (Capa 2) — the same CC0 village assets, placed by the
+// settlement grammar (src/world/SettlementGenerator.ts). The collider grid
+// (src/sim/colliders.ts) builds its boxes from the SAME memoized list, so what
+// you see is what you collide with. Buildings stay un-merged (a settlement is
+// a few dozen structures) and are fog-culled per building in update().
+// ---------------------------------------------------------------------------
+
+export interface ContinentSettlementsView {
+  group: THREE.Group;
+  update(camX: number, camZ: number, fogFar: number): void;
+}
+
+export function buildContinentSettlements(seed: number): ContinentSettlementsView {
+  const group = new THREE.Group();
+  group.name = 'settlements-continent';
+  const cullables: { g: THREE.Group; x: number; z: number }[] = [];
+
+  const ground = (x: number, z: number): number => continentHeightAt(x, z, seed);
+  const houseHeight: Record<string, number> = { house1: 8.0, house2: 7.6, house3: 8.0, inn: 7.6 };
+  const variantKey: Record<string, PropKey> = {
+    Cottage: 'house1',
+    WoodHouse: 'house2',
+    StoneHouse: 'house3',
+  };
+
+  function shadowed<T extends THREE.Object3D>(o: T): T {
+    o.traverse((c) => {
+      if ((c as THREE.Mesh).isMesh) {
+        (c as THREE.Mesh).castShadow = true;
+        (c as THREE.Mesh).receiveShadow = true;
+      }
+    });
+    return o;
+  }
+
+  /** one asset's parts under `parent` with a local transform (mirrors buildProps.addParts) */
+  function addParts(
+    parent: THREE.Object3D,
+    key: PropKey,
+    opts: { x?: number; y?: number; z?: number; rot?: number; scale: Scale },
+  ): void {
+    const a = propAsset(key);
+    const holder = new THREE.Group();
+    for (const part of a.parts) holder.add(new THREE.Mesh(part.geo, part.mat));
+    holder.position.set(opts.x ?? 0, opts.y ?? 0, opts.z ?? 0);
+    if (opts.rot !== undefined) holder.rotation.y = opts.rot;
+    setScale(holder, opts.scale);
+    parent.add(holder);
+  }
+
+  const addBuilding = (b: SettlementBuilding): void => {
+    const y = ground(b.x, b.z);
+    const g = new THREE.Group();
+    if (b.kind === 'chapel') {
+      // composed castle: tall bell tower at the rear + squat stone hall in front
+      const tower = propAsset('bellTower');
+      addParts(g, 'bellTower', {
+        z: -0.75,
+        scale: [(b.w * 0.98) / tower.size.x, 10.6 / tower.size.y, (b.d * 0.72) / tower.size.z],
+      });
+      const hall = propAsset('house3');
+      addParts(g, 'house3', {
+        z: b.d / 2 - 1.62,
+        scale: [(b.w * 0.9) / hall.size.x, 2.5 / hall.size.y, 3.2 / hall.size.z],
+      });
+    } else if (b.kind === 'inn') {
+      const a = propAsset('inn');
+      addParts(g, 'inn', { scale: [b.w / a.size.x, houseHeight.inn / a.size.y, b.d / a.size.z] });
+    } else if (b.kind === 'well') {
+      const a = propAsset('well');
+      addParts(g, 'well', { scale: [2.6 / a.size.x, 3.6 / a.size.y, 2.9 / a.size.z] });
+    } else {
+      const key: PropKey = variantKey[b.variant ?? 'Cottage'];
+      const a = propAsset(key);
+      addParts(g, key, { scale: [b.w / a.size.x, houseHeight[key] / a.size.y, b.d / a.size.z] });
+    }
+    g.position.set(b.x, y - 0.12, b.z);
+    g.rotation.y = b.rot;
+    group.add(shadowed(g));
+    cullables.push({ g, x: b.x, z: b.z });
+  };
+
+  const { settlements } = generateContinentSettlements(seed);
+  for (const settlement of settlements) {
+    for (const b of settlement.buildings) addBuilding(b);
+    for (const sat of settlement.satellites ?? []) for (const b of sat.buildings) addBuilding(b);
+  }
+
+  return {
+    group,
+    update(camX: number, camZ: number, fogFar: number): void {
+      for (const c of cullables) {
+        c.g.visible = Math.hypot(c.x - camX, c.z - camZ) < fogFar;
+      }
+    },
+  };
 }

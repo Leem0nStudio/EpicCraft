@@ -21,6 +21,7 @@ import { createGroundObject, createMob } from '../entity';
 import type { InstanceSlot, PlayerMeta } from '../sim';
 import type { SimContext } from '../sim_context';
 import { arenaQueueLeave } from '../social/arena';
+import { enterContinent, leaveContinent } from './continent';
 import { resurrectOnInstanceReentry } from '../spirit';
 import { dropThreat } from '../threat';
 import {
@@ -180,6 +181,23 @@ export function updateDoorTriggers(ctx: SimContext, p: Entity): void {
       enterDungeon(ctx, door.dungeonId, p.id);
       return;
     }
+  }
+  // Continent gates: walking through the shimmering pair teleports between
+  // Eastbrook and the far continent (plain teleports, no instance claims).
+  if (ctx.continentGateIds === null) {
+    ctx.continentGateIds = [];
+    for (const e of ctx.entities.values()) {
+      if (e.templateId === 'continent_gate' || e.templateId === 'continent_return') {
+        ctx.continentGateIds.push(e.id);
+      }
+    }
+  }
+  for (const gateId of ctx.continentGateIds) {
+    const gate = ctx.entities.get(gateId);
+    if (!gate || dist2d(p.pos, gate.pos) >= DOOR_TRIGGER_RADIUS) continue;
+    if (gate.templateId === 'continent_gate') enterContinent(ctx, p.id);
+    else leaveContinent(ctx, p.id);
+    return;
   }
 }
 

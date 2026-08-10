@@ -3,6 +3,16 @@ import { WORLD_MAX_X, WORLD_MAX_Z, WORLD_MIN_Z, ZONES } from '../sim/data';
 import { fbm2 } from '../sim/rng';
 import type { BiomeId } from '../sim/types';
 import { biomeAt, roadDistance, terrainHeight, waterLevelAt, zoneBiomeAt } from '../sim/world';
+import {
+  continentHeightAt,
+  continentSurface,
+  CONTINENT_LANDING,
+  CONTINENT_RADIUS,
+  CONTINENT_SEA_LEVEL,
+  CONTINENT_X_MAX,
+  CONTINENT_X_MIN,
+  type ContinentBiome,
+} from '../world/ContinentGrammar';
 import { loadTexture } from './assets/loader';
 import { registerPreload } from './assets/preload';
 import { GFX } from './gfx';
@@ -31,7 +41,7 @@ import { groundDetailTexture, groundSplatMaps, macroNoiseTexture } from './textu
 //   normal map baked from terrainHeight.
 // - Low tier: the legacy vertex-color Lambert look, still chunked for culling.
 
-const CHUNK_SIZE = 60;
+const CHUNK_SIZE = 60; // chunk edge length (world units)
 const SKIRT_DROP = 0.3;
 const SLOPE_EPS = 1.5; // matches the legacy color pass so tints don't shift
 
@@ -480,7 +490,11 @@ function buildChunkGeometry(
   seed: number,
   withSplat: boolean,
   skirtSpan: number,
+  sample?: (x: number, z: number) => VertexSample,
 ): THREE.BufferGeometry {
+  // The overworld sampler by default; the continent band passes its own so the
+  // same chunk/LOD/skirt machinery builds the island's real terrain.
+  const sampleAt = sample ?? ((x: number, z: number): VertexSample => sampleVertex(x, z, seed));
   const nx = Math.max(4, Math.round(size / spacing));
   const nz = nx;
   const stepX = size / nx;
@@ -511,7 +525,7 @@ function buildChunkGeometry(
       const cacheKey = cj * gw + ci;
       let s = sampleCache.get(cacheKey);
       if (!s) {
-        s = sampleVertex(x, z, seed);
+        s = sampleAt(x, z);
         sampleCache.set(cacheKey, s);
       }
       const vi = gj * gw + gi;
@@ -1212,6 +1226,327 @@ export function buildTerrain(seed: number, priorityPoint?: { x: number; z: numbe
     },
     clearBrush(): void {
       brush.uBrushRadius.value = 0;
+    },
+  };
+}
+
+// ---------------------------------------------------------------------------
+// The procedural-continent band (x >= CONTINENT_X_MIN). A SECOND chunked
+// terrain view over the island, sampled from src/world/ContinentGrammar.ts:
+// carved heightfield + continental biomes. Built hidden by the renderer and
+// streamed in idle slots (the island is invisible until the player nears the
+// band, so nothing here may gate world entry). Same chunk/LOD/skirt/splat
+// machinery as the overworld strip; no roads, hubs, or rim walls exist there.
+// ---------------------------------------------------------------------------
+
+// Ground colors per continent biome. The island is a fresh, untamed landmass:
+// lush greens on the shelf, rock and snow on the peaks, sand along the coast,
+// wet earth in the river valleys. Boundary blending is the same shape window
+// the heightfield uses (see the shore/slope blends below).
+const CONTINENT_PALETTE: Record<
+  ContinentBiome,
+  { grass: number; grassDark: number; grassYellow: number; dirt: number; sand: number }
+> = {
+  Ocean: {
+    grass: 0x1f4552,
+    grassDark: 0x173541,
+    grassYellow: 0x2b5560,
+    dirt: 0x1f3a42,
+    sand: 0x2f4a4e,
+  },
+  Sea: {
+    grass: 0x39625f,
+    grassDark: 0x2c4d4b,
+    grassYellow: 0x47726a,
+    dirt: 0x2f4a44,
+    sand: 0x49645a,
+  },
+  Lake: {
+    grass: 0x2e4a3b,
+    grassDark: 0x233a2e,
+    grassYellow: 0x3a5944,
+    dirt: 0x283630,
+    sand: 0x465a46,
+  },
+  River: {
+    grass: 0x57503f,
+    grassDark: 0x453f32,
+    grassYellow: 0x665d48,
+    dirt: 0x4a4235,
+    sand: 0x665a45,
+  },
+  Mountain: {
+    grass: 0x7d7d75,
+    grassDark: 0x63635d,
+    grassYellow: 0x94948a,
+    dirt: 0x6a675d,
+    sand: 0x8d8877,
+  },
+  Hill: {
+    grass: 0x74805f,
+    grassDark: 0x5a6548,
+    grassYellow: 0x8c9670,
+    dirt: 0x6f6a52,
+    sand: 0x9a927a,
+  },
+  Plains: {
+    grass: 0x548545,
+    grassDark: 0x3e6635,
+    grassYellow: 0x768c44,
+    dirt: 0x8a6f47,
+    sand: 0xc2b283,
+  },
+  Forest: {
+    grass: 0x3c6b31,
+    grassDark: 0x2c5224,
+    grassYellow: 0x557f3c,
+    dirt: 0x5f5238,
+    sand: 0x8d7d58,
+  },
+  Desert: {
+    grass: 0xcbaa5e,
+    grassDark: 0xa88d48,
+    grassYellow: 0xe0c070,
+    dirt: 0xc08f4a,
+    sand: 0xecc890,
+  },
+};
+
+// One continent terrain sample: height, analytic normal, legacy tint color and
+// splat weights, mirroring sampleVertex but from the continent grammar (carved
+// heightfield + continental biomes). No roads/hubs/rim — the island has none.
+function continentSampleVertex(x: number, z: number, seed: number): VertexSample {
+  const { h, biome } = continentSurface(x, z, seed);
+  const hx = continentHeightAt(x + SLOPE_EPS, z, seed) - continentHeightAt(x - SLOPE_EPS, z, seed);
+  const hz = continentHeightAt(x, z + SLOPE_EPS, seed) - continentHeightAt(x, z - SLOPE_EPS, seed);
+  const slope = Math.sqrt(hx * hx + hz * hz) / (2 * SLOPE_EPS);
+  const invLen = 1 / Math.hypot(hx / (2 * SLOPE_EPS), 1, hz / (2 * SLOPE_EPS));
+  const normal: [number, number, number] = [
+    -(hx / (2 * SLOPE_EPS)) * invLen,
+    invLen,
+    -(hz / (2 * SLOPE_EPS)) * invLen,
+  ];
+
+  const p = CONTINENT_PALETTE[biome];
+  grassC.setHex(p.grass);
+  grassDarkC.setHex(p.grassDark);
+  grassYellowC.setHex(p.grassYellow);
+  dirtC.setHex(p.dirt);
+  sandC.setHex(p.sand);
+  const v = fbm2(x * 0.045, z * 0.045, seed + 53, 3);
+  cTmp.copy(grassC).lerp(grassDarkC, v);
+  const v2 = fbm2(x * 0.16, z * 0.16, seed + 59, 2);
+  cTmp.lerp(grassYellowC, v2 * 0.35);
+  const w: [number, number, number, number] = [1, 0, 0, 0];
+  let mud = 0;
+  if (biome === 'River' || biome === 'Lake') {
+    // wet channel / tarn shore: packed mud reads as a riverbed
+    mud = 1;
+    lerpSplat(w, 1, 0.85);
+  } else if (biome === 'Desert') {
+    lerpSplat(w, 3, 0.9);
+  } else if (biome === 'Mountain' || biome === 'Hill') {
+    lerpSplat(w, 2, 0.45);
+  } else if (biome === 'Ocean' || biome === 'Sea') {
+    // seabed: dark sediment under the water plane
+    lerpSplat(w, 1, 0.6);
+  }
+  // shore: sandy (or wet-rock on the highlands) band hugging the sea level
+  const shore = clamp01((CONTINENT_SEA_LEVEL + 1.6 - h) / 1.6);
+  if (biome === 'Mountain' || biome === 'Hill') {
+    cTmp.lerp(wetRockC, shore);
+    lerpSplat(w, 2, shore);
+  } else {
+    cTmp.lerp(sandC, shore);
+    lerpSplat(w, 3, shore);
+  }
+  // rock on steep slopes, snow on the high peaks (the island tops out near the
+  // overworld rim's elevation, so the snow ramp mirrors the rim's noise-broken
+  // drift)
+  const rockStreak = fbm2(x * 0.09, z * 0.09, seed + 41, 3);
+  if (slope > 0.5) {
+    const t = Math.min(1, (slope - 0.5) * 1.6);
+    cTmp.lerp(rockC, t);
+    cTmp.lerp(dirtDarkC, t * (rockStreak - 0.5) * 0.35);
+    lerpSplat(w, 2, t);
+  }
+  let snow = 0;
+  if (h > 24) {
+    const rockT = clamp01((h - 24) / 10) * (0.6 + rockStreak * 0.25);
+    cTmp.lerp(rockC, rockT);
+    const snowPatch = fbm2(x * 0.06, z * 0.06, seed + 47, 3);
+    snow = clamp01((h - 30 + (snowPatch - 0.5) * 14) / 22) * 0.85;
+    cTmp.lerp(snowCapC, snow);
+    lerpSplat(w, 2, clamp01((h - 24) / 10) * 0.8);
+  }
+  return {
+    height: h,
+    slope,
+    normal,
+    color: [cTmp.r, cTmp.g, cTmp.b],
+    splat: w,
+    extra: [mud, snow, 0, 0],
+  };
+}
+
+// Macro relief for the continent band: a DataTexture baked from the CARVED
+// continent heightfield over the band's own bounds (the overworld strip bake
+// has no data at x ~ 12000, where ClampToEdge would smear the rim's normals).
+// Allocated zeroed at build time and baked in an idle slot — the island is
+// invisible until the player nears the band, so the bake never gates entry.
+const CONTINENT_NORMAL_W = 512;
+const CONTINENT_NORMAL_H = 416;
+
+function allocateContinentNormalTexture(): THREE.DataTexture {
+  const data = new Uint8Array(CONTINENT_NORMAL_W * CONTINENT_NORMAL_H * 4);
+  const tex = new THREE.DataTexture(data, CONTINENT_NORMAL_W, CONTINENT_NORMAL_H, THREE.RGBAFormat);
+  tex.colorSpace = THREE.NoColorSpace;
+  tex.wrapS = tex.wrapT = THREE.ClampToEdgeWrapping;
+  tex.magFilter = THREE.LinearFilter;
+  tex.minFilter = THREE.LinearMipmapLinearFilter;
+  tex.generateMipmaps = true;
+  tex.anisotropy = NORMAL_ANISOTROPY;
+  tex.needsUpdate = true;
+  return tex;
+}
+
+function bakeContinentNormalTexture(tex: THREE.DataTexture, seed: number): void {
+  const data = tex.image.data as Uint8Array;
+  const margin = 24;
+  const x0 = CONTINENT_X_MIN - margin;
+  const x1 = CONTINENT_X_MAX + margin;
+  const zHalf = CONTINENT_RADIUS * 1.3 + margin;
+  const stepX = (x1 - x0) / CONTINENT_NORMAL_W;
+  const stepZ = (zHalf * 2) / CONTINENT_NORMAL_H;
+  const heights = new Float32Array(CONTINENT_NORMAL_W * CONTINENT_NORMAL_H);
+  for (let j = 0; j < CONTINENT_NORMAL_H; j++) {
+    const z = -zHalf + (j + 0.5) * stepZ;
+    for (let i = 0; i < CONTINENT_NORMAL_W; i++) {
+      heights[j * CONTINENT_NORMAL_W + i] = continentHeightAt(x0 + (i + 0.5) * stepX, z, seed);
+    }
+  }
+  const hAt = (i: number, j: number): number => {
+    const ci = Math.max(0, Math.min(CONTINENT_NORMAL_W - 1, i));
+    const cj = Math.max(0, Math.min(CONTINENT_NORMAL_H - 1, j));
+    return heights[cj * CONTINENT_NORMAL_W + ci];
+  };
+  for (let j = 0; j < CONTINENT_NORMAL_H; j++) {
+    for (let i = 0; i < CONTINENT_NORMAL_W; i++) {
+      const dhdx = (hAt(i + 1, j) - hAt(i - 1, j)) / (2 * stepX);
+      const dhdz = (hAt(i, j + 1) - hAt(i, j - 1)) / (2 * stepZ);
+      const nx = -dhdx * NORMAL_TEX_STRENGTH;
+      const nz = -dhdz * NORMAL_TEX_STRENGTH;
+      const inv = 1 / Math.hypot(nx, 1, nz);
+      const o = (j * CONTINENT_NORMAL_W + i) * 4;
+      data[o] = (nx * inv * 0.5 + 0.5) * 255;
+      data[o + 1] = (nz * inv * 0.5 + 0.5) * 255;
+      data[o + 2] = (inv * 0.5 + 0.5) * 255;
+      data[o + 3] = 255;
+    }
+  }
+  tex.needsUpdate = true;
+}
+
+export interface ContinentTerrainView {
+  group: THREE.Group;
+  update(camX: number, camZ: number, fogFar: number): void;
+  streamingDone: Promise<void>;
+  cancelStreaming(): void;
+}
+
+// Chunked terrain over the continent band. The near ring around the landing is
+// built synchronously (a crossing player must land on solid ground); the macro
+// normal bake and the far ring stream in idle slots. The renderer keeps the
+// group hidden until the camera nears the band, so update() only runs there.
+export function buildContinentTerrain(seed: number): ContinentTerrainView {
+  const lowGfx = !GFX.terrainSplat || !hasTerrainSplatAssets();
+  const brush = makeBrushUniforms();
+  const normalTex = lowGfx ? null : allocateContinentNormalTexture();
+  const mat = normalTex ? buildSplatMaterial(normalTex, brush) : buildLambertMaterial(brush);
+  const group = new THREE.Group();
+  group.name = 'terrain-continent';
+
+  const margin = 24;
+  const x0 = CONTINENT_X_MIN - margin;
+  const x1 = CONTINENT_X_MAX + margin;
+  const zHalf = CONTINENT_RADIUS * 1.3 + margin;
+  const nearSpacing = lowGfx ? 3.0 : 1.6;
+  const farSpacing = lowGfx ? 6.5 : 4.0;
+  const NEAR_R = 170; // sync ring around the landing (the arrival point)
+  const z0 = -zHalf;
+  const z1 = zHalf;
+
+  interface ChunkJob {
+    x0: number;
+    z0: number;
+    near: boolean;
+    x: number;
+    z: number;
+    half: number;
+    mesh?: THREE.Mesh;
+  }
+  const jobs: ChunkJob[] = [];
+  for (let gz = z0; gz < z1; gz += CHUNK_SIZE) {
+    for (let gx = x0; gx < x1; gx += CHUNK_SIZE) {
+      const cx = Math.min(gx, x1 - CHUNK_SIZE);
+      const cz = Math.min(gz, z1 - CHUNK_SIZE);
+      const centerX = cx + CHUNK_SIZE / 2;
+      const centerZ = cz + CHUNK_SIZE / 2;
+      const near = Math.hypot(centerX - CONTINENT_LANDING.x, centerZ - CONTINENT_LANDING.z) < NEAR_R;
+      jobs.push({ x0: cx, z0: cz, near, x: centerX, z: centerZ, half: CHUNK_SIZE / 2 });
+    }
+  }
+  jobs.sort((a, b) => Number(b.near) - Number(a.near));
+
+  const sampler = (x: number, z: number): VertexSample => continentSampleVertex(x, z, seed);
+  const addJob = (job: ChunkJob): void => {
+    const geo = buildChunkGeometry(
+      job.x0,
+      job.z0,
+      CHUNK_SIZE,
+      job.near ? nearSpacing : farSpacing,
+      seed,
+      !lowGfx,
+      farSpacing,
+      sampler,
+    );
+    const mesh = new THREE.Mesh(geo, mat);
+    mesh.receiveShadow = true;
+    mesh.updateMatrixWorld(true);
+    mesh.matrixAutoUpdate = false;
+    group.add(mesh);
+    job.mesh = mesh;
+  };
+
+  const streamJobs: (() => void)[] = [];
+  if (normalTex) streamJobs.push(() => bakeContinentNormalTexture(normalTex, seed));
+  for (const job of jobs) {
+    if (job.near) addJob(job);
+    else streamJobs.push(() => addJob(job));
+  }
+  let cancelled = false;
+  void runIdleQueue(
+    streamJobs,
+    (fn) => {
+      fn();
+    },
+    { batchSize: 2, timeoutMs: STREAM_TIMEOUT_MS, cancelled: () => cancelled },
+  );
+
+  return {
+    group,
+    streamingDone: Promise.resolve(),
+    cancelStreaming(): void {
+      cancelled = true;
+    },
+    update(camX: number, camZ: number, fogFar: number): void {
+      // fully-fogged chunks are pure overdraw; drop them before the frustum
+      for (const job of jobs) {
+        if (!job.mesh) continue;
+        const dx = Math.max(Math.abs(camX - job.x) - job.half, 0);
+        const dz = Math.max(Math.abs(camZ - job.z) - job.half, 0);
+        job.mesh.visible = Math.hypot(dx, dz) < fogFar;
+      }
     },
   };
 }
