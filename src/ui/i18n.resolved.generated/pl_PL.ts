@@ -9441,6 +9441,24 @@ export const pl_PL: EnTranslations = {
       "thunzharr_stormling": {
         "name": "Zbudzony Burzowiec"
       },
+      "coastal_crab": {
+        "name": "Coastal Crab"
+      },
+      "pine_howler": {
+        "name": "Pine Howler"
+      },
+      "crag_serpent": {
+        "name": "Crag Serpent"
+      },
+      "dune_stalker": {
+        "name": "Dune Stalker"
+      },
+      "moor_stag": {
+        "name": "Moor Stag"
+      },
+      "tide_kraken": {
+        "name": "Tide Kraken"
+      },
       "ironvein_foreman": {
         "name": "Sztygar z Żelaznej Żyły"
       },
@@ -9753,6 +9771,71 @@ export const pl_PL: EnTranslations = {
         "name": "Alchemik Verane",
         "title": "Mistrz Aptekarstwa",
         "greeting": "Odmierz dwa razy i wlej raz, {className}. Aptekarz nie ma cierpliwości do rozlanych odczynników."
+      },
+      "mariner_voss": {
+        "name": "Mariner Voss",
+        "title": "Harbor Master",
+        "greeting": "Welcome ashore, {className}. This land is old and restless - keep your wits about you."
+      },
+      "cont_elder_miner": {
+        "name": "Elder Karvek Stonebrow",
+        "title": "Elder of the Deep Digs",
+        "greeting": "The seams under this ridge run rich, {className}, but the serpents that nest in them run meaner. Earn your keep."
+      },
+      "cont_innkeep_miner": {
+        "name": "Innkeep Marta Shale",
+        "title": "The Lode and Lamp",
+        "greeting": "Cots are warm and the stew has grit in it, just the way the dig crews like."
+      },
+      "cont_guard_miner": {
+        "name": "Guard Forge Oath",
+        "title": "Hearth Warden",
+        "greeting": "Keep to the lanterns after dusk. The serpents crawl up to feed when the forges cool."
+      },
+      "cont_elder_hunter": {
+        "name": "Elder Sable Fernmoor",
+        "title": "Elder of the Watchful Woods",
+        "greeting": "The howlers thin our deer and the treeline drinks our lantern-light, {className}. The woods have gone to the wolves."
+      },
+      "cont_innkeep_hunter": {
+        "name": "Innkeep Birn Wickwillow",
+        "title": "The Root and Revel",
+        "greeting": "Hang your bow by the fire, traveler. The howlers wont come near the smoke."
+      },
+      "cont_guard_hunter": {
+        "name": "Guard Rune Bowsinger",
+        "title": "Palisade Warden",
+        "greeting": "The howlers hunt in packs at the tree line. If you hear three at once, run for the palisade."
+      },
+      "cont_elder_farmer": {
+        "name": "Elder Tamsin Heatherfield",
+        "title": "Elder of the Open Marches",
+        "greeting": "The stags trample the young barley every planting, {className}. Thin them out and the harvest thanks you."
+      },
+      "cont_innkeep_farmer": {
+        "name": "Innkeep Gull Hopsmith",
+        "title": "The Sheaf and Shears",
+        "greeting": "Fresh loaf and barley beer. We grow our own, when the stags leave any of it standing."
+      },
+      "cont_guard_farmer": {
+        "name": "Guard Halver Stonefence",
+        "title": "Field Warden",
+        "greeting": "Keep clear of the grazing stags. They look gentle until they lower those horns."
+      },
+      "cont_elder_trader": {
+        "name": "Elder Zahir Windsail",
+        "title": "Elder of the Caravan Roads",
+        "greeting": "The stalkers prey on every caravan that crosses the sands, {className}. A quiet road is a paying road."
+      },
+      "cont_innkeep_trader": {
+        "name": "Innkeep Yara Sandglass",
+        "title": "The Dune and Date",
+        "greeting": "Trade tales by the fire and I will throw in a date with the tea."
+      },
+      "cont_guard_trader": {
+        "name": "Guard Cael Harrowedge",
+        "title": "Caravan Warden",
+        "greeting": "The stalkers circle the well road at dusk. Stay inside the lantern ring and you will pass the night."
       },
       "tidewatcher_ondrel": {
         "name": "Ondrel Vane",
@@ -10580,6 +10663,99 @@ export const pl_PL: EnTranslations = {
         "objectives": {
           "0": {
             "label": "Łan ziół zebrany"
+          }
+        }
+      },
+      "q_continent_arrival": {
+        "title": "A New Shore",
+        "text": "The seas have carried you to a land few have set foot on. Speak with me again when you are ready - I will mark your map with what I know of these shores.",
+        "completion": "Good. The landing is safe, but the wilds beyond are not. Keep your blade close.",
+        "objectives": {
+          "0": {
+            "label": "Report to Voss"
+          }
+        }
+      },
+      "q_continent_vermin": {
+        "title": "Nuisances of the New World",
+        "text": "The local wildlife is not shy. Crabs the size of shields skitter along the southern beaches, and howling packs harry the treeline. Thin their numbers - 6 coastal crabs and 5 pine howlers - and the landing will breathe easier.",
+        "completion": "That is a fine start. The land is learning to fear us.",
+        "objectives": {
+          "0": {
+            "label": "Coastal Crab slain"
+          },
+          "1": {
+            "label": "Pine Howler slain"
+          }
+        }
+      },
+      "q_continent_caches": {
+        "title": "Explorer's Caches",
+        "text": "The first explorers left behind supply caches scattered across the island - iron rations, survey tools, sealed journals. The salt and the beasts have scattered them. Find 3 caches and bring their contents back.",
+        "completion": "Journals, maps, and a half-bottle of fine Eastbrook brandy. You have earned your share.",
+        "objectives": {
+          "0": {
+            "label": "Explorer Cache found"
+          }
+        }
+      },
+      "q_continent_wyrm": {
+        "title": "The Crag Serpents",
+        "text": "The crags above the north ridge are crawling with rock serpents - mean-tempered, poison-breathed, and bold enough to slither into the landing at night. Kill 5 of them and the ridge road will be passable again.",
+        "completion": "The ridge road is clear. The serpents will think twice before coming down again.",
+        "objectives": {
+          "0": {
+            "label": "Crag Serpent slain"
+          }
+        }
+      },
+      "q_continent_kraken": {
+        "title": "Tide Devil",
+        "text": "The old sailors speak of a kraken that nests in the shallows of the eastern lagoon. It has dragged two fishing skiffs to the depths this moon alone. Find it, kill it, and bring me a pearl from its mantle as proof.",
+        "completion": "By the tides, you did it. That pearl will hang over the harbour gate - a warning to anything that hunts these waters.",
+        "objectives": {
+          "0": {
+            "label": "Kraken Pearl"
+          }
+        }
+      },
+      "q_cont_local_miner": {
+        "title": "Hearth of the miner",
+        "text": "The creatures that shadow this miner town grow bolder each season. Elder Karvek Stonebrow asks you to thin the local mob so the settlement can breathe again - clear Crag Serpent from the surrounding wilds.",
+        "completion": "The settlement is safer for your blade. Elder Karvek Stonebrow nods a slow thanks.",
+        "objectives": {
+          "0": {
+            "label": "Crag Serpent slain"
+          }
+        }
+      },
+      "q_cont_local_hunter": {
+        "title": "Hearth of the hunter",
+        "text": "The creatures that shadow this hunter town grow bolder each season. Elder Sable Fernmoor asks you to thin the local mob so the settlement can breathe again - clear Pine Howler from the surrounding wilds.",
+        "completion": "The settlement is safer for your blade. Elder Sable Fernmoor nods a slow thanks.",
+        "objectives": {
+          "0": {
+            "label": "Pine Howler slain"
+          }
+        }
+      },
+      "q_cont_local_farmer": {
+        "title": "Hearth of the farmer",
+        "text": "The creatures that shadow this farmer town grow bolder each season. Elder Tamsin Heatherfield asks you to thin the local mob so the settlement can breathe again - clear Moor Stag from the surrounding wilds.",
+        "completion": "The settlement is safer for your blade. Elder Tamsin Heatherfield nods a slow thanks.",
+        "objectives": {
+          "0": {
+            "label": "Moor Stag slain"
+          }
+        }
+      },
+      "q_cont_local_trader": {
+        "title": "Hearth of the trader",
+        "text": "The creatures that shadow this trader town grow bolder each season. Elder Zahir Windsail asks you to thin the local mob so the settlement can breathe again - clear Dune Stalker from the surrounding wilds.",
+        "completion": "The settlement is safer for your blade. Elder Zahir Windsail nods a slow thanks.",
+        "objectives": {
+          "0": {
+            "label": "Dune Stalker slain"
           }
         }
       },

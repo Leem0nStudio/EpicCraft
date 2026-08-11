@@ -399,7 +399,7 @@ import {
   leaveContinent as leaveContinentImpl,
   setContinentGatePos,
 } from './instances/continent';
-import { continentCamps, continentTreasures } from './content/continent';
+import { continentCamps, continentSettlementNpcs, continentTreasures } from './content/continent';
 import { buyHeroicVendorItem as buyHeroicVendorItemImpl } from './instances/heroic_vendor';
 import * as questCommands from './quests/quest_commands';
 import {
@@ -1829,8 +1829,9 @@ export class Sim {
       this.addEntity(ret);
     }
 
-    // Continent content (Capa 3): seed-derived camps and treasure caches.
-    // Uses a separate Rng stream so the overworld's rng draw order is untouched.
+    // Continent content (Capa 3): seed-derived camps, treasure caches, and
+    // settlement residents. Uses a separate Rng stream so the overworld's rng
+    // draw order is untouched.
     {
       const seed = getContinentSeed();
       const campRng = new Rng((seed ^ 0xc4a7) >>> 0);
@@ -1845,6 +1846,18 @@ export class Sim {
           );
           this.addEntity(obj);
         }
+      }
+      // Settlement residents: one role-themed elder/innkeeper/guard per kingdom
+      // capital, placed at chapel/inn/well. Their own seeded rng stream (each
+      // createNpc draws a wander timer), so the overworld + camp draw order is
+      // untouched.
+      const settlementRng = new Rng((seed ^ 0xc4a9) >>> 0);
+      for (const spot of continentSettlementNpcs(seed)) {
+        const npcDef = worldContent.npcs[spot.templateId];
+        if (!npcDef) continue;
+        const safe = this.findSafePos(spot.x, spot.z, waterLevel() + 0.6);
+        const npc = createNpc(this.nextId++, npcDef, this.groundPos(safe.x, safe.z), settlementRng);
+        this.addEntity(npc);
       }
     }
 

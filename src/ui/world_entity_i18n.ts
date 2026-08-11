@@ -161,6 +161,19 @@ const NPC_IDS = [
   'alchemist_verane', // crafting-station master: apothecary (Highwatch, zone 3)
   // Continente por Gramatica v1 — procedural continent NPCs
   'mariner_voss',
+  // Settlement casts (elder / innkeeper / guard per biome role)
+  'cont_elder_miner',
+  'cont_innkeep_miner',
+  'cont_guard_miner',
+  'cont_elder_hunter',
+  'cont_innkeep_hunter',
+  'cont_guard_hunter',
+  'cont_elder_farmer',
+  'cont_innkeep_farmer',
+  'cont_guard_farmer',
+  'cont_elder_trader',
+  'cont_innkeep_trader',
+  'cont_guard_trader',
 ] as const;
 
 const QUEST_IDS = [
@@ -248,6 +261,11 @@ const QUEST_IDS = [
   'q_continent_caches',
   'q_continent_wyrm',
   'q_continent_kraken',
+  // Per-role settlement quests (Hearth of the <role>)
+  'q_cont_local_miner',
+  'q_cont_local_hunter',
+  'q_cont_local_farmer',
+  'q_cont_local_trader',
 ] as const;
 
 const ZONE_IDS = ['eastbrook_vale', 'mirefen_marsh', 'thornpeak_heights'] as const;
