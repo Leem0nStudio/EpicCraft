@@ -211,6 +211,7 @@ export const META_EXCLUDE: ReadonlySet<string> = new Set([
   'moveInput', // input, not state
   'joinedAt', // session-only clock
   'lastActiveTick', // session-only
+  'continentGateCdUntil', // session-only gate-crossing cooldown (sim clock)
   'away', // session-only presence
   'lastWhisperFrom', // session-only
   'marketQuery', // session-only browse query (search + filters + page)

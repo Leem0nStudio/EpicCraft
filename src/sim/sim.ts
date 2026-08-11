@@ -1065,6 +1065,12 @@ export interface PlayerMeta {
   // aggressive pet auto-pull (see PET_OWNER_IDLE_TICKS) so an idle owner's pet
   // cannot farm the area alone.
   lastActiveTick: number;
+  // Sim-time (seconds) before which the continent gates will not take this
+  // player again. Session-only, never persisted. Set on a crossing so a freshly
+  // teleported player can step off the arrival gate before it re-triggers them
+  // (the gates spawn at the exact teleport destinations, inside the 2.0-unit
+  // door-trigger radius; see instances/continent.ts).
+  continentGateCdUntil: number;
   // Ashen Coliseum standings. Legacy arenaRating/Wins/Losses are the 1v1
   // bracket; 2v2 is fully independent and persisted alongside them.
   arenaRating: number;
@@ -2127,6 +2133,7 @@ export class Sim {
       joinedAt: this.time,
       totalPlayedSeconds: Math.max(0, savedState?.totalPlayedSeconds ?? 0),
       lastActiveTick: this.tickCount,
+      continentGateCdUntil: 0,
       arenaRating: savedArena1v1.rating,
       arenaWins: savedArena1v1.wins,
       arenaLosses: savedArena1v1.losses,

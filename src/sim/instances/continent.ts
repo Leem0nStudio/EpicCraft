@@ -33,6 +33,18 @@ export const CONTINENT_OVERWORLD_GATE = { x: 34, z: 14 };
 // than assumed). leaveContinent returns the player there.
 let overworldGatePos: { x: number; z: number } | null = null;
 
+// The gates spawn at the exact teleport destinations (the return gate sits on
+// CONTINENT_LANDING, the overworld gate on the stamped gate pos), which puts
+// them inside the 2.0-unit door-trigger radius (DOOR_TRIGGER_RADIUS in
+// instances/dungeons.ts). Landing the player exactly there makes the very next
+// trigger sweep bounce them straight back through. Landing them a few units
+// PAST the gate (like leaveDungeon's `doorPos.z - 4` step-out) keeps the
+// arrival off the portal, and a short per-player cooldown (sim-time seconds)
+// gives a returning player time to walk clear before either gate can take them
+// again. Pure movement (no rng, no clock), so determinism is untouched.
+const CONTINENT_GATE_STEP_OUT = 4;
+const CONTINENT_GATE_COOLDOWN_SEC = 3;
+
 // Stamped by the Sim ctor after the overworld gate entity is spawned. Pure
 // bookkeeping (no rng, no clock), so determinism is untouched.
 export function setContinentGatePos(pos: { x: number; z: number } | null): void {
@@ -51,12 +63,18 @@ export function enterContinent(ctx: SimContext, pid?: number): boolean {
   // re-entry). Ghosts keep their spirit state — the continent is open world,
   // so no instance resurrection rules apply.
   if (p.dead && !p.ghost) return false;
-  p.pos = ctx.groundPos(CONTINENT_LANDING.x, CONTINENT_LANDING.z);
+  // Cooldown: a player who just crossed (or a fast F-key mash on the gate)
+  // must step clear of the portal before it can take them again.
+  if (ctx.time < r.meta.continentGateCdUntil) return false;
+  // Step past the arrival gate toward the island interior so the door-trigger
+  // sweep (radius 2.0) can't bounce us back onto it.
+  p.pos = ctx.groundPos(CONTINENT_LANDING.x, CONTINENT_LANDING.z - CONTINENT_GATE_STEP_OUT);
   p.prevPos = { ...p.pos };
   ctx.rebucket(p);
   p.facing = 0;
   p.targetId = null;
   p.autoAttack = false;
+  r.meta.continentGateCdUntil = ctx.time + CONTINENT_GATE_COOLDOWN_SEC;
   ctx.emit({
     type: 'log',
     text: 'The shimmering gate pulls you across the sea...',
@@ -72,15 +90,18 @@ export function leaveContinent(ctx: SimContext, pid?: number): boolean {
   if (r.e.pos.x < CONTINENT_X_MIN) return false; // not on the continent
   // A fresh corpse cannot move; a released ghost may still cross back.
   if (r.e.dead && !r.e.ghost) return false;
+  if (ctx.time < r.meta.continentGateCdUntil) return false;
   const gate = overworldGatePos;
   if (!gate) return false;
   const p = r.e;
-  p.pos = ctx.groundPos(gate.x, gate.z);
+  // Step past the overworld gate so the trigger sweep can't re-enter us.
+  p.pos = ctx.groundPos(gate.x - CONTINENT_GATE_STEP_OUT, gate.z);
   p.prevPos = { ...p.pos };
   ctx.rebucket(p);
   p.facing = 0;
   p.targetId = null;
   p.autoAttack = false;
+  r.meta.continentGateCdUntil = ctx.time + CONTINENT_GATE_COOLDOWN_SEC;
   ctx.emit({
     type: 'log',
     text: 'The gate delivers you back to familiar shores.',
