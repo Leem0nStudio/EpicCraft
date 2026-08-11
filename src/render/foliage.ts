@@ -24,18 +24,18 @@ import {
   zoneBiomeAt,
 } from '../sim/world';
 import {
-  continentHeightAt,
-  continentSurface,
-  continentTooSteep,
   CONTINENT_CX,
   CONTINENT_RADIUS,
   CONTINENT_SEA_LEVEL,
   type ContinentBiome,
+  continentHeightAt,
+  continentSurface,
+  continentTooSteep,
 } from '../world/ContinentGrammar';
 import {
-  generateContinentProps,
   type ContinentProp,
   type ContinentPropKind,
+  generateContinentProps,
 } from '../world/RegionPopulator';
 import { loadGltf } from './assets/loader';
 import { registerPreload } from './assets/preload';
@@ -280,7 +280,11 @@ export interface ContinentFoliageView {
 
 // one static grass tuft InstancedMesh per z-band (cheap fog cull, no per-frame
 // rebuild: the island is fixed, so its grass is fixed too)
-function buildContinentGrass(group: THREE.Group, seed: number, register: (m: THREE.InstancedMesh, x: number, z: number, radius: number) => void): void {
+function buildContinentGrass(
+  group: THREE.Group,
+  seed: number,
+  register: (m: THREE.InstancedMesh, x: number, z: number, radius: number) => void,
+): void {
   const lush = !GFX.leanFoliage;
   const quad = new THREE.PlaneGeometry(lush ? 1.45 : 1.1, lush ? 0.9 : 0.7);
   quad.translate(0, lush ? 0.42 : 0.35, 0);
@@ -295,7 +299,10 @@ function buildContinentGrass(group: THREE.Group, seed: number, register: (m: THR
   const step = GFX.grassStep;
   const half = CONTINENT_RADIUS + 8;
   const bandH = Math.ceil((half * 2) / BUCKET_DEPTH);
-  const perBand = new Map<number, { x: number; z: number; h: number; tint: number }[]>();
+  const perBand = new Map<
+    number,
+    { x: number; z: number; h: number; scale: number; tint: number }[]
+  >();
   for (let i = Math.floor(-half / step) - 1; i <= Math.ceil(half / step) + 1; i++) {
     for (let j = Math.floor(-half / step) - 1; j <= Math.ceil(half / step) + 1; j++) {
       const r = hashAt(i, j, 0);
@@ -402,10 +409,10 @@ export function buildContinentFoliage(seed: number): ContinentFoliageView {
       const urls = kindUrls[kind];
       // one InstancedMesh per (kind, model variant, part): the island is small,
       // so this stays a handful of draws per band even with full variety.
-      for (let v = 0; v < urls.length; v++) {
-        const sub = list.filter((p) => p.variant === v);
+      for (let variantIndex = 0; variantIndex < urls.length; variantIndex++) {
+        const sub = list.filter((p) => p.variant === variantIndex);
         if (sub.length === 0) continue;
-        const parts = extractParts(urls[v]);
+        const parts = extractParts(urls[variantIndex]);
         for (const part of parts) {
           const im = new THREE.InstancedMesh(part.geometry, part.material, sub.length);
           sub.forEach((p, n) => {

@@ -1818,8 +1818,10 @@ function mergeStaticMeshes(group: THREE.Group, keep: Set<THREE.Object3D>): THREE
 // Continent settlements (Capa 2) — the same CC0 village assets, placed by the
 // settlement grammar (src/world/SettlementGenerator.ts). The collider grid
 // (src/sim/colliders.ts) builds its boxes from the SAME memoized list, so what
-// you see is what you collide with. Buildings stay un-merged (a settlement is
-// a few dozen structures) and are fog-culled per building in update().
+// you see is what you collide with. Building meshes are merged per
+// (material, castShadow, z-band) exactly like the overworld (mergeStaticMeshes)
+// and fog-culled per merged mesh, so a full island (150-350 structures) costs
+// a handful of draws instead of one draw per structure.
 // ---------------------------------------------------------------------------
 
 export interface ContinentSettlementsView {
@@ -1830,7 +1832,7 @@ export interface ContinentSettlementsView {
 export function buildContinentSettlements(seed: number): ContinentSettlementsView {
   const group = new THREE.Group();
   group.name = 'settlements-continent';
-  const cullables: { g: THREE.Group; x: number; z: number }[] = [];
+  const cullables: PropCullable[] = [];
 
   const ground = (x: number, z: number): number => continentHeightAt(x, z, seed);
   const houseHeight: Record<string, number> = { house1: 8.0, house2: 7.6, house3: 8.0, inn: 7.6 };
@@ -1894,7 +1896,6 @@ export function buildContinentSettlements(seed: number): ContinentSettlementsVie
     g.position.set(b.x, y - 0.12, b.z);
     g.rotation.y = b.rot;
     group.add(shadowed(g));
-    cullables.push({ g, x: b.x, z: b.z });
   };
 
   const { settlements } = generateContinentSettlements(seed);
@@ -1903,11 +1904,20 @@ export function buildContinentSettlements(seed: number): ContinentSettlementsVie
     for (const sat of settlement.satellites ?? []) for (const b of sat.buildings) addBuilding(b);
   }
 
+  // Merge all static building meshes per (material, castShadow, z-band) and
+  // register the merged meshes as fog-culled cullables (the overworld path).
+  const keep = new Set<THREE.Object3D>();
+  const staticMeshes = mergeStaticMeshes(group, keep);
+  for (const sm of staticMeshes) {
+    const bounds = cullableBounds(sm, sm.geometry.boundingBox, sm.geometry.boundingSphere);
+    if (bounds) cullables.push(bounds);
+  }
+
   return {
     group,
     update(camX: number, camZ: number, fogFar: number): void {
       for (const c of cullables) {
-        c.g.visible = Math.hypot(c.x - camX, c.z - camZ) < fogFar;
+        c.obj.visible = cullableVisible(c, camX, camZ, fogFar);
       }
     },
   };
