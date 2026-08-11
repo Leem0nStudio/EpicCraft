@@ -130,7 +130,7 @@ function doorPortalMaterial(entering: boolean, lowGfx: boolean): THREE.MeshBasic
   const key = `${entering}:${lowGfx}`;
   const existing = portalMats.get(key);
   if (existing) return existing;
-  const tint = entering ? 0x9a5df0 : 0x6ab8ff;
+  const tint = entering ? 0x6ab8ff : 0x9a5df0;
   const material = markSharedMaterial(
     new THREE.MeshBasicMaterial({
       color: tint,

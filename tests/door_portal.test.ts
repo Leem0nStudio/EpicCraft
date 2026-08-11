@@ -84,8 +84,8 @@ describe('portal material: tint per direction and HDR boost per tier', () => {
     // low tier: no boost, so the color is the raw tint
     const enter = portalMat(true, true);
     const exit = portalMat(false, true);
-    expect(enter.color.getHex()).toBe(0x9a5df0);
-    expect(exit.color.getHex()).toBe(0x6ab8ff);
+    expect(enter.color.getHex()).toBe(0x6ab8ff);
+    expect(exit.color.getHex()).toBe(0x9a5df0);
     expect(enter.transparent).toBe(true);
     expect(enter.blending).toBe(THREE.AdditiveBlending);
     expect(enter.depthWrite).toBe(false);
