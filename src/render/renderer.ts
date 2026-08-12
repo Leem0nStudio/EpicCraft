@@ -87,8 +87,10 @@ import { advanceSelfFacing, releaseSelfFacing } from './facing_smooth';
 import { type FireballTravelVisual, syncFireballTravelVisual } from './fireball_travel_visual';
 import { buildFish, type FishView } from './fish';
 import {
+  buildContinentFoliage,
   buildFoliage,
   buildFoliageMaterialPrewarmGroup,
+  type ContinentFoliageView,
   type FoliagePerfStats,
   type FoliageView,
 } from './foliage';
@@ -173,8 +175,12 @@ import {
   type TemporalHourglassMode,
   type TemporalHourglassVisual,
 } from './temporal_hourglass_visual';
-import { buildContinentFoliage, type ContinentFoliageView } from './foliage';
-import { buildContinentTerrain, buildTerrain, type ContinentTerrainView, type TerrainView } from './terrain';
+import {
+  buildContinentTerrain,
+  buildTerrain,
+  type ContinentTerrainView,
+  type TerrainView,
+} from './terrain';
 import { sparkleTexture } from './textures';
 import { targetIntensity } from './travel_speed_fx';
 import { TravelSpeedFxPainter } from './travel_speed_fx_painter';
@@ -845,6 +851,15 @@ function isPersistentPortalObject(e: Entity): boolean {
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => window.setTimeout(resolve, Math.max(0, ms)));
+}
+
+function screenPointToNdc(
+  clientX: number,
+  clientY: number,
+  viewportWidth: number,
+  viewportHeight: number,
+): THREE.Vector2 {
+  return new THREE.Vector2((clientX / viewportWidth) * 2 - 1, -(clientY / viewportHeight) * 2 + 1);
 }
 
 export class Renderer {
@@ -6185,10 +6200,7 @@ export class Renderer {
    * past the built terrain footprint. Editor-only (3D in-world editing).
    */
   surfacePoint(clientX: number, clientY: number): THREE.Vector3 | null {
-    const ndc = new THREE.Vector2(
-      (clientX / this.viewport.width) * 2 - 1,
-      -(clientY / this.viewport.height) * 2 + 1,
-    );
+    const ndc = screenPointToNdc(clientX, clientY, this.viewport.width, this.viewport.height);
     this.raycaster.setFromCamera(ndc, this.camera);
     const hits = this.raycaster.intersectObjects(this.terrainView.group.children, false);
     if (hits.length > 0 && hits[0].point) return hits[0].point.clone();
@@ -6473,10 +6485,7 @@ export class Renderer {
   // horizontal plane at the player's foot height — robust on the gentle terrain
   // here and far cheaper than raycasting the terrain mesh.
   groundPoint(clientX: number, clientY: number, planeY: number): { x: number; z: number } | null {
-    const ndc = new THREE.Vector2(
-      (clientX / window.innerWidth) * 2 - 1,
-      -(clientY / window.innerHeight) * 2 + 1,
-    );
+    const ndc = screenPointToNdc(clientX, clientY, this.viewport.width, this.viewport.height);
     this.raycaster.setFromCamera(ndc, this.camera);
     const plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -planeY);
     const hit = new THREE.Vector3();
@@ -6490,10 +6499,7 @@ export class Renderer {
   // by string id, not entities keyed by numeric id, so widening `pick()`'s
   // return contract would force every existing caller to re-discriminate.
   pickGatherNode(clientX: number, clientY: number): string | null {
-    const ndc = new THREE.Vector2(
-      (clientX / this.viewport.width) * 2 - 1,
-      -(clientY / this.viewport.height) * 2 + 1,
-    );
+    const ndc = screenPointToNdc(clientX, clientY, this.viewport.width, this.viewport.height);
     this.raycaster.setFromCamera(ndc, this.camera);
     const hits = this.raycaster.intersectObjects(this.gatherNodeMeshes, true);
     for (const hit of hits) {
@@ -6517,10 +6523,7 @@ export class Renderer {
   // click that lands on a node must not be stolen by the sloppy assist below)
   // can slot the node raycast in between this and pickSloppy.
   pickDirect(clientX: number, clientY: number): number | null {
-    const ndc = new THREE.Vector2(
-      (clientX / this.viewport.width) * 2 - 1,
-      -(clientY / this.viewport.height) * 2 + 1,
-    );
+    const ndc = screenPointToNdc(clientX, clientY, this.viewport.width, this.viewport.height);
     this.raycaster.setFromCamera(ndc, this.camera);
     const hits = this.raycaster.intersectObjects(this.clickTargets, true);
     const directHitIds: number[] = [];
